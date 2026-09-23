@@ -165,6 +165,18 @@ describe("editable indexed meshes", () => {
 });
 
 describe("local model drafts and bundles", () => {
+  test("reloads V1 and V2 drafts with their original asset URLs", async () => {
+    const store = createModelDraftStore(`modeler-generations-${Date.now()}`);
+    const oldDraft = await store.saveDraft("Original figure", createVitruvianProject());
+    const newDraft = await store.saveDraft("V2 figures", createVitruvianV2Project());
+    expect((await store.loadDraft(oldDraft.id))?.project.assets[0]?.path).toBe("/modeler/vitruvian.glb");
+    const restoredV2 = (await store.loadDraft(newDraft.id))?.project;
+    expect(restoredV2?.assets[0]?.path).toBe("/modeler/vitruvian-v2.glb");
+    expect(restoredV2?.rigs.map((rig) => rig.id)).toEqual([
+      "vitruvian-v2-primary-rig", "vitruvian-v2-ghost-rig",
+    ]);
+  });
+
   test("stores named drafts separately from binary assets", async () => {
     const store = createModelDraftStore(`modeler-test-${Date.now()}`);
     const project = createVitruvianProject();
