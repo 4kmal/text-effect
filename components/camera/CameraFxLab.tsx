@@ -289,7 +289,8 @@ const formatDuration = (milliseconds: number) => {
 };
 
 const formatBytes = (value: number) => {
-  if (!Number.isFinite(value) || value <= 0) return "--";
+  if (!Number.isFinite(value) || value < 0) return "--";
+  if (value === 0) return "0 B";
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 };
@@ -331,6 +332,7 @@ export default function CameraFxLab() {
     },
   );
   const [takeBytes, setTakeBytes] = useState(0);
+  const [takeSizes, setTakeSizes] = useState({ effected: 0, clean: 0 });
   const [conversionState, setConversionState] = useState<
     "idle" | "converting" | "done" | "error"
   >("idle");
@@ -480,6 +482,7 @@ export default function CameraFxLab() {
     if (!lastTake) {
       setTakeUrls({ effected: "", clean: "" });
       setTakeBytes(0);
+      setTakeSizes({ effected: 0, clean: 0 });
       return () => undefined;
     }
     void Promise.all([
@@ -489,10 +492,11 @@ export default function CameraFxLab() {
       .then(([processedFile, cleanFile]) => {
         if (disposed) return;
         createdUrls = [
-          URL.createObjectURL(processedFile),
-          URL.createObjectURL(cleanFile),
+          processedFile.size > 0 ? URL.createObjectURL(processedFile) : "",
+          cleanFile.size > 0 ? URL.createObjectURL(cleanFile) : "",
         ];
         setTakeBytes(processedFile.size + cleanFile.size);
+        setTakeSizes({ effected: processedFile.size, clean: cleanFile.size });
         setTakeUrls({ effected: createdUrls[0], clean: createdUrls[1] });
       })
       .catch((error: unknown) => {
@@ -505,7 +509,7 @@ export default function CameraFxLab() {
       });
     return () => {
       disposed = true;
-      createdUrls.forEach((url) => URL.revokeObjectURL(url));
+      createdUrls.filter(Boolean).forEach((url) => URL.revokeObjectURL(url));
     };
   }, [lastTake]);
 
@@ -645,33 +649,36 @@ export default function CameraFxLab() {
     setMicrophones(devices.filter((device) => device.kind === "audioinput"));
   }, []);
 
-  const requestMicrophone = useCallback(async (): Promise<boolean> => {
-    if (!micEnabled) return false;
-    try {
-      const constraints: MediaStreamConstraints = {
-        video: false,
-        audio: microphoneId ? { deviceId: { exact: microphoneId } } : true,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      micStreamRef.current?.getTracks().forEach((track) => track.stop());
-      micStreamRef.current = stream;
-      setAudioDenied(false);
-      setStatusMessage(
-        "Camera and microphone ready. Choose a folder to record.",
-      );
-      return true;
-    } catch {
-      setAudioDenied(true);
-      setMicEnabled(false);
-      updateProject((next) => {
-        next.micEnabled = false;
-      });
-      setStatusMessage(
-        "Camera ready. Microphone permission was denied; video-only recording is available.",
-      );
-      return false;
-    }
-  }, [micEnabled, microphoneId, updateProject]);
+  const requestMicrophone = useCallback(
+    async (retry = false): Promise<boolean> => {
+      if (!micEnabled && !retry) return false;
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: false,
+          audio: microphoneId ? { deviceId: { exact: microphoneId } } : true,
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        micStreamRef.current?.getTracks().forEach((track) => track.stop());
+        micStreamRef.current = stream;
+        setAudioDenied(false);
+        setStatusMessage(
+          "Camera and microphone ready. Choose a folder to record.",
+        );
+        return true;
+      } catch {
+        setAudioDenied(true);
+        setMicEnabled(false);
+        updateProject((next) => {
+          next.micEnabled = false;
+        });
+        setStatusMessage(
+          "Camera ready. Microphone permission was denied; video-only recording is available.",
+        );
+        return false;
+      }
+    },
+    [micEnabled, microphoneId, updateProject],
+  );
 
   const startCamera = useCallback(async () => {
     if (cameraMode === "starting" || isRecording) return;
@@ -997,28 +1004,49 @@ export default function CameraFxLab() {
     }
   }, [cameraMode, micEnabled, nativeMime, project]);
 
-  const toggleMute = useCallback(() => {
-    const nextMuted = !micEnabled;
-    setMicEnabled(nextMuted);
-    updateProject((next) => {
-      next.micEnabled = nextMuted;
-    });
+  const toggleMute = useCallback(async () => {
     const session = recordingSessionRef.current;
-    session?.setMuted(!nextMuted);
-    if (nextMuted) {
+    if (micEnabled) {
+      setMicEnabled(false);
+      updateProject((next) => {
+        next.micEnabled = false;
+      });
+      session?.setMuted(true);
       micStreamRef.current?.getAudioTracks().forEach((track) => {
         track.enabled = false;
       });
       setStatusMessage(
-        "Microphone muted. The current take remains video-only until unmuted.",
+        session
+          ? "Microphone muted for this take."
+          : "Microphone muted. New recordings will be video-only.",
       );
-    } else {
-      micStreamRef.current?.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      setStatusMessage("Microphone enabled for the next recording chunk.");
+      return;
     }
-  }, [micEnabled, updateProject]);
+
+    let track = micStreamRef.current
+      ?.getAudioTracks()
+      .find((audioTrack) => audioTrack.readyState === "live");
+    if (!track) {
+      const granted = await requestMicrophone(true);
+      if (!granted) return;
+      track = micStreamRef.current?.getAudioTracks()[0];
+    }
+    if (track) {
+      track.enabled = true;
+      setMicEnabled(true);
+      updateProject((next) => {
+        next.micEnabled = true;
+      });
+      session?.setMuted(false);
+      setStatusMessage(
+        session && !session.hasAudio
+          ? "Microphone ready. Audio will be included in the next take."
+          : session
+            ? "Microphone enabled for this take."
+            : "Microphone enabled. New recordings will include audio.",
+      );
+    }
+  }, [micEnabled, requestMicrophone, updateProject]);
 
   const saveLook = useCallback(() => {
     const name = draftName.trim() || "Untitled look";
@@ -1939,6 +1967,7 @@ export default function CameraFxLab() {
                 {formatBytes(takeBytes)} ·{" "}
                 {lastTake.mimeType.startsWith("video/mp4") ? "MP4" : "WEBM"}
                 {lastTake.hasAudio ? " + AUDIO" : " · VIDEO ONLY"}
+                {lastTake.partial ? " · PARTIAL" : ""}
               </strong>
             </div>
             <div className="camera-take-actions">
@@ -1972,18 +2001,22 @@ export default function CameraFxLab() {
             </div>
           </div>
           <div className="camera-take-videos">
-            {takeUrls.effected && (
-              <label>
-                <span>EFFECTED</span>
+            <label>
+              <span>EFFECTED · {formatBytes(takeSizes.effected)}</span>
+              {takeUrls.effected ? (
                 <video src={takeUrls.effected} controls playsInline />
-              </label>
-            )}
-            {takeUrls.clean && (
-              <label>
-                <span>CLEAN</span>
+              ) : (
+                <span>No playable data in this file.</span>
+              )}
+            </label>
+            <label>
+              <span>CLEAN · {formatBytes(takeSizes.clean)}</span>
+              {takeUrls.clean ? (
                 <video src={takeUrls.clean} controls playsInline />
-              </label>
-            )}
+              ) : (
+                <span>No playable data in this file.</span>
+              )}
+            </label>
           </div>
         </section>
       )}

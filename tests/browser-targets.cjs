@@ -15,6 +15,7 @@ function optionsWithFallback(browserType, cachedVersion, executable) {
 
 const targets = {
   chrome: { browserType: chromium, options: { channel: "chrome" } },
+  edge: { browserType: chromium, options: { channel: "msedge" } },
   firefox: {
     browserType: firefox,
     options: optionsWithFallback(firefox, "firefox-1538", [
