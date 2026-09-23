@@ -198,7 +198,7 @@ export default function ModelerStudio() {
   const [draftsLoaded, setDraftsLoaded] = useState(false);
   const [status, setStatus] = useState("Loading the Vitruvian scene...");
   const [statusError, setStatusError] = useState(false);
-  const [selectedBone, setSelectedBone] = useState("arm-left-upper");
+  const [selectedBone, setSelectedBone] = useState("primary_upperarm01.L");
   const [selectedMesh, setSelectedMesh] = useState("");
   const [selectedFace, setSelectedFace] = useState<number | null>(null);
   const [selectionKind, setSelectionKind] = useState<SelectionKind>("face");
@@ -234,7 +234,16 @@ export default function ModelerStudio() {
 
   useEffect(() => {
     if (!selectedRig) return;
-    if (!selectedRig.pose[selectedBone]) setSelectedBone(selectedRig.bones[0]?.name ?? "");
+    if (selectedRig.pose[selectedBone]) return;
+    const prefix = selectedRig.id.includes("ghost") ? "ghost_" : "primary_";
+    const matchingBone = selectedBone.replace(/^(primary_|ghost_)/, prefix);
+    setSelectedBone(
+      selectedRig.pose[matchingBone] ? matchingBone
+        : selectedRig.bones.find((bone) => bone.name.endsWith("upperarm01.L"))?.name
+          ?? selectedRig.bones.find((bone) => bone.name === "arm-left-upper")?.name
+          ?? selectedRig.bones[0]?.name
+          ?? "",
+    );
   }, [selectedRig, selectedBone]);
 
   const commit = useCallback((change: (draft: ModelProject) => void) => {
