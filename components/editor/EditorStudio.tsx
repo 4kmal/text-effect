@@ -11,7 +11,6 @@ import {
   Download,
   Eye,
   EyeOff,
-  FileDown,
   FilePlus2,
   GripVertical,
   Loader2,
@@ -135,6 +134,13 @@ const getCanvasSize = (project: UiProject | null) => ({
   width: Math.max(1, project?.width ?? 1280),
   height: Math.max(1, project?.height ?? 720),
 });
+
+const get720pScale = (project: UiProject) =>
+  Math.min(
+    1,
+    1280 / Math.max(project.width, project.height),
+    720 / Math.min(project.width, project.height),
+  );
 
 const setCanvasSize = (project: UiProject, width: number, height: number) => {
   project.width = width;
@@ -289,12 +295,12 @@ export default function EditorStudio() {
   const [historyPast, setHistoryPast] = useState<UiProject[]>([]);
   const [historyFuture, setHistoryFuture] = useState<UiProject[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("webm");
-  const [exportScale, setExportScale] = useState(1);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStatus, setExportStatus] = useState<
     "idle" | "exporting" | "done" | "error"
   >("idle");
   const [exportError, setExportError] = useState("");
+  const [canRetry720, setCanRetry720] = useState(false);
   const [renderError, setRenderError] = useState("");
   const [showDrafts, setShowDrafts] = useState(false);
   const [fontsReady, setFontsReady] = useState(false);
@@ -334,7 +340,11 @@ export default function EditorStudio() {
       if (typeof document !== "undefined" && document.fonts?.ready) {
         await document.fonts.ready;
         await Promise.all(
-          ["Departure Mono", "Geist Mono", "Press Start 2P"].map((font) =>
+          [
+            "Departure Mono Editor",
+            "Geist Mono Editor",
+            "Press Start 2P Editor",
+          ].map((font) =>
             document.fonts.load(`16px "${font}"`).catch(() => undefined),
           ),
         );
@@ -881,11 +891,12 @@ export default function EditorStudio() {
     notify("Project JSON downloaded");
   };
 
-  const startExport = async (scale = exportScale) => {
+  const startExport = async (scale = 1) => {
     if (!project || exportStatus === "exporting") return;
     setExportStatus("exporting");
     setExportProgress(0);
     setExportError("");
+    setCanRetry720(false);
     const controller = new AbortController();
     exportAbortRef.current = controller;
     try {
@@ -909,6 +920,7 @@ export default function EditorStudio() {
         notify("Export cancelled");
       } else {
         setExportStatus("error");
+        setCanRetry720(scale > get720pScale(project));
         setExportError(
           error instanceof Error
             ? error.message
@@ -1029,6 +1041,15 @@ export default function EditorStudio() {
               >
                 <FilePlus2 size={14} /> New draft
               </button>
+              <button
+                className="fx-draft-new"
+                onClick={() => {
+                  setShowDrafts(false);
+                  fileInputRef.current?.click();
+                }}
+              >
+                <Upload size={14} /> Import JSON
+              </button>
             </div>
           )}
         </div>
@@ -1140,6 +1161,14 @@ export default function EditorStudio() {
               <span className="fx-section-count">
                 {layers.length.toString().padStart(2, "0")}
               </span>
+              <button
+                className="fx-add-layer-small"
+                onClick={addLayer}
+                aria-label="Add text layer"
+                title="Add text layer"
+              >
+                <Plus size={13} />
+              </button>
             </div>
             <div
               className="fx-layer-list"
@@ -1814,14 +1843,11 @@ export default function EditorStudio() {
           {exportStatus === "error" && (
             <div className="fx-export-error" role="alert">
               <span>{exportError || "Export failed."}</span>
-              <button
-                onClick={() => {
-                  setExportScale(0.667);
-                  void startExport(0.667);
-                }}
-              >
-                Retry at 720p
-              </button>
+              {canRetry720 && (
+                <button onClick={() => void startExport(get720pScale(project))}>
+                  Retry at 720p
+                </button>
+              )}
             </div>
           )}
           {exportStatus === "done" && (
@@ -1949,14 +1975,6 @@ export default function EditorStudio() {
         hidden
         onChange={handleProjectImport}
       />
-      <div className="fx-file-actions" aria-label="Project files">
-        <button onClick={() => fileInputRef.current?.click()}>
-          <Upload size={14} /> Import JSON
-        </button>
-        <button onClick={exportJson}>
-          <FileDown size={14} /> Export JSON
-        </button>
-      </div>
       {toast && (
         <div className="fx-toast" role="status">
           {toast}

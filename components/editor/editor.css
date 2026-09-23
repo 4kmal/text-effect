@@ -12,7 +12,8 @@
   --fx-orange-soft: #b94e23;
   --fx-orange-wash: rgba(242, 102, 34, 0.12);
   --fx-green: #98cf73;
-  --fx-mono: "Departure Mono", "Geist Mono", "Roboto Mono", monospace;
+  --fx-mono:
+    "Departure Mono Editor", "Geist Mono Editor", "Roboto Mono", monospace;
 }
 
 .fx-studio {
@@ -352,6 +353,7 @@
   border-right: 1px solid var(--fx-line);
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 .fx-panel-right {
   grid-area: right;
@@ -396,6 +398,9 @@
   padding: 14px 13px;
   border-bottom: 1px solid var(--fx-line-soft);
 }
+.fx-preset-section {
+  flex: 0 0 auto;
+}
 .fx-section-heading {
   display: flex;
   align-items: center;
@@ -409,6 +414,20 @@
 .fx-section-count {
   color: var(--fx-faint);
   margin-left: auto;
+}
+.fx-add-layer-small {
+  color: var(--fx-orange);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--fx-line);
+  background: var(--fx-panel-2);
+  cursor: pointer;
+}
+.fx-add-layer-small:hover {
+  border-color: var(--fx-orange);
 }
 .fx-section-rule {
   flex: 1;
@@ -465,13 +484,13 @@
   color: var(--fx-orange);
 }
 .fx-layers-section {
-  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  flex: 1;
 }
 .fx-layer-list {
   min-height: 50px;
+  max-height: 240px;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1197,33 +1216,6 @@
   border-top: 6px solid var(--fx-orange);
 }
 
-.fx-file-actions {
-  position: fixed;
-  left: 12px;
-  bottom: 232px;
-  display: flex;
-  gap: 4px;
-  opacity: 0.56;
-  z-index: 4;
-}
-.fx-file-actions:hover {
-  opacity: 1;
-}
-.fx-file-actions button {
-  border: 1px solid var(--fx-line);
-  background: var(--fx-panel-2);
-  color: var(--fx-muted);
-  padding: 5px 7px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  font-size: 9px;
-}
-.fx-file-actions button:hover {
-  color: var(--fx-copy);
-  border-color: var(--fx-orange-soft);
-}
 .fx-toast {
   position: fixed;
   left: 50%;
@@ -1306,11 +1298,6 @@
   .fx-timeline {
     order: 4;
     min-height: 220px;
-  }
-  .fx-file-actions {
-    position: static;
-    padding: 10px;
-    opacity: 1;
   }
   .fx-toast {
     bottom: 15px;

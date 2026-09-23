@@ -31,7 +31,11 @@ export function SoundProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initAudio = () => {
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+        const AudioContextConstructor = window.AudioContext ||
+          (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextConstructor) {
+          audioContextRef.current = new AudioContextConstructor();
+        }
       }
     };
 

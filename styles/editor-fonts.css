@@ -1,5 +1,5 @@
 @font-face {
-  font-family: "Departure Mono";
+  font-family: "Departure Mono Editor";
   src: url("/fonts/editor/DepartureMono-Regular.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
@@ -7,7 +7,7 @@
 }
 
 @font-face {
-  font-family: "Geist Mono";
+  font-family: "Geist Mono Editor";
   src: url("/fonts/editor/GeistMono-Regular.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
@@ -15,7 +15,7 @@
 }
 
 @font-face {
-  font-family: "Press Start 2P";
+  font-family: "Press Start 2P Editor";
   src: url("/fonts/editor/PressStart2P-Regular.ttf") format("truetype");
   font-style: normal;
   font-weight: 400;
