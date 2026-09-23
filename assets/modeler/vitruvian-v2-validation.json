@@ -1,0 +1,277 @@
+{
+  "asset": "vitruvian-v2",
+  "glb": "public/modeler/vitruvian-v2.glb",
+  "obj": "public/modeler/vitruvian-v2.obj",
+  "json": {
+    "nodeNamesPresent": [
+      "vitruvian-ghost",
+      "vitruvian-primary",
+      "vitruvian-ring"
+    ],
+    "nodeNamesExact": true,
+    "defaultPoseDistinct": {
+      "upperarm": true,
+      "upperleg": true
+    },
+    "skins": [
+      {
+        "name": "VitruvianGhostRig",
+        "jointCount": 163,
+        "prefix": "ghost_",
+        "allPrefixed": true
+      },
+      {
+        "name": "VitruvianPrimaryRig",
+        "jointCount": 163,
+        "prefix": "primary_",
+        "allPrefixed": true
+      }
+    ],
+    "materials": [
+      {
+        "name": "Vitruvian Ghost Translucent Blue",
+        "alphaMode": "BLEND",
+        "alpha": 0.23999999463558197
+      },
+      {
+        "name": "Vitruvian Primary Electric Blue",
+        "alphaMode": "OPAQUE",
+        "alpha": 1
+      },
+      {
+        "name": "Vitruvian Ring Electric Blue",
+        "alphaMode": "OPAQUE",
+        "alpha": 1
+      }
+    ],
+    "animations": [
+      {
+        "name": "Vitruvian V2 360 Spin",
+        "channelCount": 1,
+        "timeRange": [
+          0.016666666666666666,
+          30
+        ]
+      }
+    ]
+  },
+  "objCounts": {
+    "vertices": 28680,
+    "faces": 28676,
+    "materialLibraryPresent": true
+  },
+  "reimport": {
+    "missingObjects": [],
+    "rigs": [
+      {
+        "name": "VitruvianPrimaryRig",
+        "boneCount": 163,
+        "prefix": "primary_",
+        "allPrefixed": true
+      },
+      {
+        "name": "VitruvianGhostRig",
+        "boneCount": 163,
+        "prefix": "ghost_",
+        "allPrefixed": true
+      }
+    ],
+    "bodies": {
+      "VitruvianPrimaryBody": {
+        "bounds": {
+          "min": [
+            -0.824528,
+            -0.245089,
+            -0.002032
+          ],
+          "max": [
+            0.826624,
+            0.095412,
+            1.729108
+          ],
+          "size": [
+            1.651153,
+            0.340501,
+            1.73114
+          ]
+        },
+        "vertexCount": 14517,
+        "material": "Vitruvian Primary Electric Blue",
+        "hasArmatureModifier": true,
+        "vertexGroupCount": 163,
+        "expectedBoneGroupCount": 163
+      },
+      "VitruvianGhostBody": {
+        "bounds": {
+          "min": [
+            -0.778373,
+            -0.103365,
+            0.195781
+          ],
+          "max": [
+            0.778694,
+            0.267299,
+            1.729108
+          ],
+          "size": [
+            1.557067,
+            0.370665,
+            1.533327
+          ]
+        },
+        "vertexCount": 14517,
+        "material": "Vitruvian Ghost Translucent Blue",
+        "hasArmatureModifier": true,
+        "vertexGroupCount": 163,
+        "expectedBoneGroupCount": 163
+      }
+    },
+    "ringBounds": {
+      "min": [
+        -0.989039,
+        0.166455,
+        -0.128
+      ],
+      "max": [
+        0.98702,
+        0.19354,
+        1.848
+      ],
+      "size": [
+        1.976059,
+        0.027085,
+        1.976
+      ]
+    },
+    "rootAction": "Vitruvian V2 360 Spin",
+    "spinSamples": {
+      "frames": [
+        0.4,
+        180.3,
+        360.2,
+        540.1,
+        720.0
+      ],
+      "dominantAxis": 2,
+      "signedAnglesDegrees": [
+        0.0,
+        95.437,
+        179.813,
+        275.449,
+        360.0
+      ],
+      "shortestAnglesDegrees": [
+        0.0,
+        95.437,
+        179.813,
+        84.551,
+        0.0
+      ],
+      "reachesHalfTurn": true,
+      "reachesThreeQuarterTurn": true,
+      "reachesFullTurn": true,
+      "returnsToStart": true
+    },
+    "materials": [
+      {
+        "name": "Vitruvian Ghost Translucent Blue",
+        "surfaceRenderMethod": "BLENDED",
+        "opacityProperty": 0.24,
+        "diffuseAlpha": 0.23999999463558197
+      },
+      {
+        "name": "Vitruvian Primary Electric Blue",
+        "surfaceRenderMethod": "DITHERED",
+        "opacityProperty": 1.0,
+        "diffuseAlpha": 1.0
+      },
+      {
+        "name": "Vitruvian Ring Electric Blue",
+        "surfaceRenderMethod": "DITHERED",
+        "opacityProperty": 1.0,
+        "diffuseAlpha": 1.0
+      }
+    ],
+    "poseability": {
+      "VitruvianPrimaryRig": {
+        "bone": "primary_upperarm01.L",
+        "boundsChanged": true,
+        "before": {
+          "min": [
+            -0.824528,
+            -0.245089,
+            -0.002032
+          ],
+          "max": [
+            0.826624,
+            0.095412,
+            1.729108
+          ],
+          "size": [
+            1.651153,
+            0.340501,
+            1.73114
+          ]
+        },
+        "after": {
+          "min": [
+            -0.824528,
+            -0.307437,
+            -0.002032
+          ],
+          "max": [
+            0.796944,
+            0.095412,
+            1.729108
+          ],
+          "size": [
+            1.621473,
+            0.402849,
+            1.73114
+          ]
+        }
+      },
+      "VitruvianGhostRig": {
+        "bone": "ghost_upperarm01.L",
+        "boundsChanged": true,
+        "before": {
+          "min": [
+            -0.778373,
+            -0.103365,
+            0.195781
+          ],
+          "max": [
+            0.778694,
+            0.267299,
+            1.729108
+          ],
+          "size": [
+            1.557067,
+            0.370665,
+            1.533327
+          ]
+        },
+        "after": {
+          "min": [
+            -0.778373,
+            -0.110648,
+            0.195781
+          ],
+          "max": [
+            0.78111,
+            0.267299,
+            1.729108
+          ],
+          "size": [
+            1.559482,
+            0.377948,
+            1.533327
+          ]
+        }
+      }
+    },
+    "headUp": true
+  },
+  "passed": true,
+  "failures": []
+}

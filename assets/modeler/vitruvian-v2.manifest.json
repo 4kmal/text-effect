@@ -1,0 +1,87 @@
+{
+  "schema": "rapidscreen.model-asset.v2",
+  "assetId": "vitruvian-v2",
+  "title": "Vitruvian Signal V2",
+  "source": {
+    "generator": "MPFB 2.0.17",
+    "blender": "5.2.2 LTS",
+    "baseMesh": "MPFB bundled data/3dobjs/base.obj",
+    "baseMeshPath": "data/3dobjs/base.obj",
+    "baseMeshSha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+    "baseMeshLicense": "CC0 1.0",
+    "mpfbArchiveSha256": "4f0a879d64a39bf646fbf5f53601ac678855da329d650617dca5737548239a87",
+    "mpfbSourceUrl": "https://github.com/makehumancommunity/mpfb2",
+    "mpfbLicenseUrl": "https://raw.githubusercontent.com/makehumancommunity/mpfb2/master/LICENSE.CODE.md",
+    "assetLicenseUrl": "https://raw.githubusercontent.com/makehumancommunity/mpfb2/master/LICENSE.ASSETS.md",
+    "referenceImage": "local reference image excluded from deployment"
+  },
+  "files": {
+    "glb": "/modeler/vitruvian-v2.glb",
+    "obj": "/modeler/vitruvian-v2.obj",
+    "blender": "assets/modeler/vitruvian-v2.blend"
+  },
+  "nodes": [
+    "vitruvian-primary",
+    "vitruvian-ghost",
+    "vitruvian-ring"
+  ],
+  "figures": [
+    {
+      "node": "vitruvian-primary",
+      "rig": "VitruvianPrimaryRig",
+      "bonePrefix": "primary_",
+      "opacity": 1.0,
+      "pose": "horizontal arms and closer legs"
+    },
+    {
+      "node": "vitruvian-ghost",
+      "rig": "VitruvianGhostRig",
+      "bonePrefix": "ghost_",
+      "opacity": 0.24,
+      "pose": "raised arms and spread legs",
+      "depthOffset": 0.18
+    }
+  ],
+  "rig": {
+    "source": "MPFB default",
+    "boneCount": 163,
+    "primaryPrefix": "primary_",
+    "ghostPrefix": "ghost_",
+    "controls": [
+      "upperarm01.L",
+      "upperarm01.R",
+      "lowerarm01.L",
+      "lowerarm01.R",
+      "upperleg01.L",
+      "upperleg01.R",
+      "lowerleg01.L",
+      "lowerleg01.R",
+      "wrist.L",
+      "wrist.R",
+      "foot.L",
+      "foot.R"
+    ]
+  },
+  "animation": {
+    "name": "Vitruvian V2 360 Spin",
+    "fps": 60,
+    "durationSeconds": 30,
+    "keyframesDegrees": [
+      0,
+      90,
+      180,
+      270,
+      360
+    ],
+    "axis": "Z in Blender, Y in exported glTF runtime"
+  },
+  "coordinateSystem": {
+    "authoringUpAxis": "Z",
+    "exportedRuntimeUpAxis": "Y",
+    "front": "-Y in Blender review camera"
+  },
+  "hashes": {
+    "glbSha256": "d89386327fce2346a93640b275a4c9da5deb66ba8f465654f5e0665a01cfa8db",
+    "objSha256": "54d5cdfccab3a916e406f04f90f91d5e689677e5cfd4a24fa1515015f7f4c2d1"
+  }
+}
