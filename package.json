@@ -70,6 +70,8 @@
     "phaser": "^3.80.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/bun": "^1.4.2",
     "@types/d3": "^7.4.3",
     "@types/node": "^20.10.4",
     "@types/react": "^18.2.42",
