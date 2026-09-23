@@ -17,6 +17,7 @@ Run with Blender's background Python:
 from __future__ import annotations
 
 import argparse
+import bmesh
 import hashlib
 import json
 import math
@@ -132,6 +133,76 @@ def import_makehuman(base_obj: str) -> bpy.types.Object:
     return body
 
 
+def trim_body_to_pelvis(body: bpy.types.Object, pelvis_y: float = -0.92) -> None:
+    """Keep the licensed base's head, torso, shoulders, and source arms.
+
+    The MakeHuman base is intentionally retained as the anatomy source, but its
+    tightly closed leg volume reads as one robe under the neon material. The
+    lower source vertices are removed at the pelvis and replaced by four
+    separately rigged authored legs, leaving readable negative space between
+    each pair. MakeHuman's baked source pose is head-up toward negative Y in
+    this Blender scene, so the lower-body side of the cut is positive Y.
+    """
+    mesh = bmesh.new()
+    mesh.from_mesh(body.data)
+    for vertex in list(mesh.verts):
+        if vertex.co.y > pelvis_y:
+            mesh.verts.remove(vertex)
+    mesh.to_mesh(body.data)
+    mesh.free()
+    body.data.update()
+
+
+def lift_source_arms(body: bpy.types.Object) -> None:
+    """Raise the licensed source arms into the second Vitruvian pose.
+
+    The MakeHuman base has its arms sloping down from the shoulders. Rotating
+    only the arm-side vertices around each shoulder preserves the torso and
+    face while giving the source pair a readable upward diagonal silhouette.
+    Their exact rest bones are authored to this pose below.
+    """
+    for vertex in body.data.vertices:
+        if abs(vertex.co.x) <= 0.62:
+            continue
+        side = 1 if vertex.co.x >= 0 else -1
+        pivot = Vector((0.38 * side, -1.95, 0.0))
+        rotation = Quaternion((0, 0, 1), math.radians(-78 * side))
+        vertex.co = pivot + rotation @ (vertex.co - pivot)
+    body.data.update()
+
+
+def mark_rig_bone(obj: bpy.types.Object, bone_name: str) -> bpy.types.Object:
+    obj["rigBone"] = bone_name
+    return obj
+
+
+def create_pelvis(material) -> bpy.types.Object:
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, location=(0, -0.87, 0.02))
+    pelvis = bpy.context.object
+    pelvis.name = "pelvis"
+    pelvis.scale = (0.82, 0.50, 0.56)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    apply_material(pelvis, material)
+    smooth_mesh(pelvis)
+    return mark_rig_bone(pelvis, "root")
+
+
+def create_core_legs(material) -> list[bpy.types.Object]:
+    """Create the original leg pair as independent thigh, shin, and foot meshes."""
+    legs: list[bpy.types.Object] = []
+    for side, sign in (("left", 1), ("right", -1)):
+        hip = Vector((0.30 * sign, -0.86, 0.04))
+        knee = Vector((0.39 * sign, 0.25, 0.08))
+        ankle = Vector((0.43 * sign, 1.42, 0.12))
+        thigh = create_limb_mesh(f"leg-{side}-upper", [tuple(hip), tuple(knee)], [0.30, 0.22], material)
+        shin = create_limb_mesh(f"leg-{side}-lower", [tuple(knee), tuple(ankle)], [0.22, 0.13], material)
+        legs.extend([mark_rig_bone(thigh, f"leg-{side}-upper"), mark_rig_bone(shin, f"leg-{side}-lower")])
+        direction = Vector((0.25 * sign, 0.02, 0.10)).normalized()
+        feet = create_foot_detail(f"leg-{side}-foot", tuple(ankle), tuple(direction), material)
+        legs.extend(mark_rig_bone(foot, f"leg-{side}-lower") for foot in feet)
+    return legs
+
+
 def create_limb_mesh(name: str, points: list[tuple[float, float, float]], radii: list[float], material) -> bpy.types.Object:
     """Create a rounded, tapered organic mesh along a hand-authored path."""
     sides = 20
@@ -168,7 +239,10 @@ def create_limb_mesh(name: str, points: list[tuple[float, float, float]], radii:
     mesh = bpy.data.meshes.new(f"{name}Mesh")
     mesh.from_pydata(verts, [], faces)
     mesh.update()
-    obj = bpy.data.objects.new(name, mesh)
+    # Keep mesh node names distinct from the armature bones. Blender's glTF
+    # exporter otherwise suffixes the duplicate bone names (for example
+    # `arm-left-upper-2_1`), which makes the modeler's pose controls brittle.
+    obj = bpy.data.objects.new(f"mesh-{name}", mesh)
     bpy.context.collection.objects.link(obj)
     apply_material(obj, material)
     smooth_mesh(obj)
@@ -199,12 +273,37 @@ def create_hand_detail(name: str, wrist: tuple[float, float, float], direction: 
     return objects
 
 
+def create_foot_detail(name: str, ankle: tuple[float, float, float], direction: tuple[float, float, float], material) -> list[bpy.types.Object]:
+    ankle_v = Vector(ankle)
+    direction_v = Vector(direction).normalized()
+    sole = create_limb_mesh(
+        f"{name}-sole",
+        [tuple(ankle_v), tuple(ankle_v + direction_v * 0.22), tuple(ankle_v + direction_v * 0.48)],
+        [0.14, 0.20, 0.14],
+        material,
+    )
+    objects = [sole]
+    side = Vector((-direction_v.y, direction_v.x, 0)).normalized()
+    if side.length < 0.1:
+        side = Vector((0, 1, 0))
+    for toe in range(4):
+        spread = side * ((toe - 1.5) * 0.045)
+        start = ankle_v + direction_v * 0.43 + spread
+        end = start + direction_v * (0.15 - (0.02 if toe == 0 else 0.0))
+        objects.append(create_limb_mesh(f"{name}-toe-{toe + 1}", [tuple(start), tuple(end)], [0.045, 0.018], material))
+    return objects
+
+
 def create_extra_limbs(material) -> tuple[list[bpy.types.Object], dict[str, tuple[Vector, Vector]]]:
     limb_specs = {
-        "arm-left-upper-2": [(0.33, 1.92, 0.03), (0.90, 2.14, 0.05), (1.55, 2.31, 0.07), (2.18, 2.24, 0.10), (2.62, 2.03, 0.12)],
-        "arm-right-upper-2": [(-0.33, 1.92, 0.03), (-0.90, 2.14, 0.05), (-1.55, 2.31, 0.07), (-2.18, 2.24, 0.10), (-2.62, 2.03, 0.12)],
-        "leg-left-upper-2": [(0.18, -2.32, 0.00), (0.54, -2.68, 0.04), (1.06, -3.10, 0.08), (1.64, -3.34, 0.12), (2.14, -3.48, 0.15)],
-        "leg-right-upper-2": [(-0.18, -2.32, 0.00), (-0.54, -2.68, 0.04), (-1.06, -3.10, 0.08), (-1.64, -3.34, 0.12), (-2.14, -3.48, 0.15)],
+        # Second arm pair: broad and horizontal, leaving the MakeHuman source
+        # pair as the raised diagonal pose.
+        "arm-left-upper-2": [(0.33, -1.78, 0.03), (0.92, -1.79, 0.05), (1.55, -1.77, 0.07), (2.18, -1.70, 0.10), (2.62, -1.60, 0.12)],
+        "arm-right-upper-2": [(-0.33, -1.78, 0.03), (-0.92, -1.79, 0.05), (-1.55, -1.77, 0.07), (-2.18, -1.70, 0.10), (-2.62, -1.60, 0.12)],
+        # Second leg pair: begins at the pelvis and fans outward, with a clear
+        # channel between it and the vertical core legs.
+        "leg-left-upper-2": [(0.33, -0.84, 0.00), (0.78, -0.22, 0.04), (1.18, 0.46, 0.08), (1.72, 0.92, 0.12), (2.18, 1.16, 0.15)],
+        "leg-right-upper-2": [(-0.33, -0.84, 0.00), (-0.78, -0.22, 0.04), (-1.18, 0.46, 0.08), (-1.72, 0.92, 0.12), (-2.18, 1.16, 0.15)],
     }
     limbs: list[bpy.types.Object] = []
     bones: dict[str, tuple[Vector, Vector]] = {}
@@ -212,23 +311,23 @@ def create_extra_limbs(material) -> tuple[list[bpy.types.Object], dict[str, tupl
         points = [tuple(point) for point in raw_points]
         radii = [0.24, 0.22, 0.16, 0.12, 0.09]
         limb = create_limb_mesh(name, points, radii, material)
-        limbs.append(limb)
+        limbs.append(mark_rig_bone(limb, name))
         bones[name] = (Vector(points[0]), Vector(points[2]))
         lower_name = name.replace("-upper-2", "-lower-2")
         bones[lower_name] = (Vector(points[2]), Vector(points[-1]))
         if name.startswith("arm-"):
             direction = (Vector(points[-1]) - Vector(points[-2])).normalized()
             hand_objects = create_hand_detail(name, points[-1], tuple(direction), material)
-            limbs.extend(hand_objects)
+            limbs.extend(mark_rig_bone(hand, name) for hand in hand_objects)
         else:
             direction = (Vector(points[-1]) - Vector(points[-2])).normalized()
-            foot_objects = create_hand_detail(name.replace("-upper-2", "-foot-2"), points[-1], tuple(direction), material)
-            limbs.extend(foot_objects)
+            foot_objects = create_foot_detail(name.replace("-upper-2", "-foot-2"), points[-1], tuple(direction), material)
+            limbs.extend(mark_rig_bone(foot, name) for foot in foot_objects)
     return limbs, bones
 
 
 def make_ring(material) -> bpy.types.Object:
-    bpy.ops.mesh.primitive_torus_add(major_radius=3.62, minor_radius=0.045, major_segments=128, minor_segments=12, location=(0, 0, 0))
+    bpy.ops.mesh.primitive_torus_add(major_radius=3.62, minor_radius=0.032, major_segments=128, minor_segments=12, location=(0, 0, 0))
     ring = bpy.context.object
     ring.name = "vitruvian-ring"
     apply_material(ring, material)
@@ -243,9 +342,14 @@ def create_armature(body: bpy.types.Object, limb_objects: list[bpy.types.Object]
     bpy.context.view_layer.objects.active = rig
     rig.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
-    root = armature_data.edit_bones.new("Root")
+    root = armature_data.edit_bones.new("root")
     root.head = (0, 0, 0)
     root.tail = (0, 1.0, 0)
+    spine = armature_data.edit_bones.new("spine")
+    spine.head = (0, -0.90, 0)
+    spine.tail = (0, -1.95, 0)
+    spine.parent = root
+    spine.use_connect = False
     for name, (head, tail) in bone_specs.items():
         bone = armature_data.edit_bones.new(name)
         bone.head = head
@@ -255,14 +359,14 @@ def create_armature(body: bpy.types.Object, limb_objects: list[bpy.types.Object]
     # Base limb controls let the source MakeHuman body be posed alongside the
     # authored second pair. Each pair has an upper and lower control.
     for name, head, tail in (
-        ("arm-left-upper", (0.38, 1.95, 0), (0.92, 1.55, 0)),
-        ("arm-left-lower", (0.92, 1.55, 0), (1.45, 1.10, 0)),
-        ("arm-right-upper", (-0.38, 1.95, 0), (-0.92, 1.55, 0)),
-        ("arm-right-lower", (-0.92, 1.55, 0), (-1.45, 1.10, 0)),
-        ("leg-left-upper", (0.19, -2.20, 0), (0.28, -3.75, 0)),
-        ("leg-left-lower", (0.28, -3.75, 0), (0.38, -5.75, 0)),
-        ("leg-right-upper", (-0.19, -2.20, 0), (-0.28, -3.75, 0)),
-        ("leg-right-lower", (-0.28, -3.75, 0), (-0.38, -5.75, 0)),
+        ("arm-left-upper", (0.38, -1.95, 0), (0.92, -2.35, 0)),
+        ("arm-left-lower", (0.92, -2.35, 0), (1.45, -2.80, 0)),
+        ("arm-right-upper", (-0.38, -1.95, 0), (-0.92, -2.35, 0)),
+        ("arm-right-lower", (-0.92, -2.35, 0), (-1.45, -2.80, 0)),
+        ("leg-left-upper", (0.30, -0.86, 0), (0.39, 0.25, 0)),
+        ("leg-left-lower", (0.39, 0.25, 0), (0.43, 1.42, 0)),
+        ("leg-right-upper", (-0.30, -0.86, 0), (-0.39, 0.25, 0)),
+        ("leg-right-lower", (-0.39, 0.25, 0), (-0.43, 1.42, 0)),
     ):
         bone = armature_data.edit_bones.new(name)
         bone.head = head
@@ -280,21 +384,25 @@ def create_armature(body: bpy.types.Object, limb_objects: list[bpy.types.Object]
         obj.parent = rig
         if obj is body:
             groups = {bone.name: obj.vertex_groups.new(name=bone.name) for bone in armature_data.bones}
+            # Keep the recognizable MakeHuman torso and head on the root, and
+            # bind the source diagonal arms to their matching upper/lower
+            # controls. The authored second pair and legs are independent
+            # meshes below.
             for vertex in obj.data.vertices:
                 co = vertex.co
                 side = "left" if co.x >= 0 else "right"
-                if abs(co.x) > 0.62 and co.y > 0.15:
+                if abs(co.x) > 1.02:
+                    groups[f"arm-{side}-lower"].add([vertex.index], 1.0, "REPLACE")
+                elif abs(co.x) > 0.62:
                     groups[f"arm-{side}-upper"].add([vertex.index], 1.0, "REPLACE")
-                elif abs(co.x) > 0.28 and co.y < -1.85:
-                    groups[f"leg-{side}-upper"].add([vertex.index], 1.0, "REPLACE")
                 else:
-                    groups["Root"].add([vertex.index], 1.0, "REPLACE")
+                    groups["root"].add([vertex.index], 1.0, "REPLACE")
         else:
             # Each added limb object is independently controllable. Fingers and
             # palm objects are bound to their parent limb control as a whole.
-            bone_name = next((name for name in bone_specs if obj.name.startswith(name)), None)
+            bone_name = obj.get("rigBone") or next((name for name in bone_specs if obj.name.startswith(name)), None)
             if bone_name is None:
-                bone_name = next(iter(bone_specs))
+                bone_name = "root"
             group = obj.vertex_groups.new(name=bone_name)
             group.add(list(range(len(obj.data.vertices))), 1.0, "REPLACE")
     return rig
@@ -386,6 +494,13 @@ def export_files(public_dir: Path, asset_dir: Path, root: bpy.types.Object, rig:
     obj_path = public_dir / "vitruvian.obj"
     blend_path = asset_dir / "vitruvian-neon.blend"
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+    # Blender authoring uses the source's Y-up review orientation, while the
+    # glTF exporter converts mesh data from Blender's native Z-up convention.
+    # Apply the inverse conversion on the exported asset root so Three.js sees
+    # the figure upright (Y height, X width, Z depth). The editable .blend was
+    # saved immediately above and remains in the review orientation.
+    root.rotation_mode = "XYZ"
+    root.rotation_euler.x = math.radians(90)
     shutil.copyfile(blend_path, asset_dir / "vitruvian.blend")
     bpy.ops.export_scene.gltf(
         filepath=str(glb_path),
@@ -437,8 +552,9 @@ def write_manifest(public_dir: Path, asset_dir: Path, base_obj: Path, reference:
         },
         "rig": {
             "name": rig.name,
-            "root": "Root",
+            "root": "root",
             "poseableControls": [
+                "spine",
                 "arm-left-upper", "arm-left-lower", "arm-right-upper", "arm-right-lower",
                 "arm-left-upper-2", "arm-left-lower-2", "arm-right-upper-2", "arm-right-lower-2",
                 "leg-left-upper", "leg-left-lower", "leg-right-upper", "leg-right-lower",
@@ -452,7 +568,7 @@ def write_manifest(public_dir: Path, asset_dir: Path, base_obj: Path, reference:
             "keyframesDegrees": [0, 90, 180, 270, 360],
         },
         "materials": ["Electric Blue Emission", "Deep Space Backdrop"],
-        "referencePathUsedForBuild": reference or None,
+        "referenceImage": "supplied frontal image used locally during authoring; excluded from deployed assets",
     }
     (asset_dir / "vitruvian-neon.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -494,17 +610,22 @@ def main() -> None:
     body_material = neon_material("Electric Blue Emission", (0.003, 0.035, 0.55, 1), 1.55)
     ring_material = neon_material("Ring Electric Blue", (0.005, 0.12, 0.95, 1), 4.5)
     body = import_makehuman(str(base_obj))
+    trim_body_to_pelvis(body)
+    lift_source_arms(body)
     apply_material(body, body_material)
     smooth_mesh(body)
+    pelvis = create_pelvis(body_material)
+    core_legs = create_core_legs(body_material)
     extra_limbs, bone_specs = create_extra_limbs(body_material)
     ring = make_ring(ring_material)
     root = bpy.data.objects.new("VitruvianAsset", None)
     bpy.context.collection.objects.link(root)
     body.parent = root
-    for obj in extra_limbs:
+    limb_objects = [pelvis, *core_legs, *extra_limbs]
+    for obj in limb_objects:
         obj.parent = root
     ring.parent = root
-    rig = create_armature(body, extra_limbs, bone_specs)
+    rig = create_armature(body, limb_objects, bone_specs)
     rig.parent = root
     camera, scene = setup_scene(root)
     create_turntable(root)

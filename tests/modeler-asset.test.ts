@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 type GltfJson = {
-  nodes?: Array<{ name?: string }>
+  nodes?: Array<{ name?: string; rotation?: number[] }>
   skins?: Array<{ joints?: number[] }>
   animations?: Array<{
     name?: string
@@ -40,8 +40,20 @@ describe('RapidScreen Vitruvian starter asset', () => {
     ]
 
     expect(nodeNames).toContain('vitruvian-ring')
+    expect(nodeNames).toContain('root')
+    expect(nodeNames).toContain('spine')
     for (const bone of requiredBones) expect(nodeNames).toContain(bone)
-    expect(json.skins?.[0]?.joints?.length).toBeGreaterThanOrEqual(17)
+    expect(nodeNames.filter((name) => requiredBones.includes(name))).toHaveLength(requiredBones.length)
+    expect(json.skins?.[0]?.joints?.length).toBeGreaterThanOrEqual(18)
+
+    // The asset is authored in Blender's review orientation, then exported
+    // with the inverse axis conversion on the scene root so Three.js receives
+    // Y-up geometry. Keep this guard beside the bone-name contract.
+    const assetRoot = json.nodes?.find((node) => node.name === 'VitruvianAsset')
+    expect(assetRoot?.rotation?.[0]).toBeCloseTo(Math.SQRT1_2, 5)
+    expect(assetRoot?.rotation?.[1]).toBeCloseTo(0, 5)
+    expect(assetRoot?.rotation?.[2]).toBeCloseTo(0, 5)
+    expect(assetRoot?.rotation?.[3]).toBeCloseTo(Math.SQRT1_2, 5)
 
     const animation = json.animations?.find((candidate) => candidate.name === 'Vitruvian 360 Spin')
     expect(animation).toBeDefined()
@@ -71,5 +83,6 @@ describe('RapidScreen Vitruvian starter asset', () => {
     expect(manifest.files.blender).toBe('assets/modeler/vitruvian.blend')
     expect(manifest.source.license).toBe('CC0 1.0')
     expect(manifest.source.referenceImage).toBe('kept outside deployed public assets')
+    expect(JSON.stringify(manifest)).not.toMatch(/(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/)
   })
 })

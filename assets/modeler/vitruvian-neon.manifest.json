@@ -16,8 +16,9 @@
   },
   "rig": {
     "name": "VitruvianRig",
-    "root": "Root",
+    "root": "root",
     "poseableControls": [
+      "spine",
       "arm-left-upper",
       "arm-left-lower",
       "arm-right-upper",
@@ -52,5 +53,5 @@
     "Electric Blue Emission",
     "Deep Space Backdrop"
   ],
-  "referencePathUsedForBuild": "C:\\Users\\Admin\\Pictures\\exepert\\651769894_18119728342718231_3670824622714637090_n.jpg"
+  "referenceImage": "supplied frontal image used locally during authoring; excluded from deployed assets"
 }
