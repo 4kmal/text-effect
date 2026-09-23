@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import * as THREE from "three";
 
 import { createVitruvianProject, createVitruvianV2Project, evaluateModelFrame } from "../components/modeler/core";
-import { detectRuntimeAssetKind } from "../components/modeler/runtime/scene";
+import { detectRuntimeAssetKind, findAuthoredAssembly, stableRuntimeNodeName } from "../components/modeler/runtime/scene";
 
 describe("modeler V2 runtime contract", () => {
   test("recognizes the composite nodes and leaves legacy scenes on the old path", () => {
@@ -37,5 +38,39 @@ describe("modeler V2 runtime contract", () => {
     expect(project.assets[0]?.path).toBe("/modeler/vitruvian.glb");
     expect(project.objects.map((object) => object.id)).toEqual(["vitruvian-figure"]);
     expect(project.rigs).toHaveLength(1);
+  });
+
+  test("maps a GLTF scene wrapper to its authored assembly without detaching children", () => {
+    const wrapper = new THREE.Group();
+    wrapper.name = "Scene";
+    const assembly = new THREE.Group();
+    assembly.name = "vitruvian-v2-assembly";
+    const primary = new THREE.Group();
+    primary.name = "vitruvian-primary";
+    const ghost = new THREE.Group();
+    ghost.name = "vitruvian-ghost";
+    const ring = new THREE.Group();
+    ring.name = "vitruvian-ring";
+    assembly.add(primary, ghost, ring);
+    wrapper.add(assembly);
+
+    expect(findAuthoredAssembly(wrapper)).toBe(assembly);
+    expect(assembly.parent).toBe(wrapper);
+    expect(assembly.children.map((child) => child.name)).toEqual([
+      "vitruvian-primary",
+      "vitruvian-ghost",
+      "vitruvian-ring",
+    ]);
+    expect(wrapper.name).not.toBe(assembly.name);
+    expect(new Set([wrapper.name, assembly.name, primary.name, ghost.name, ring.name]).size).toBe(5);
+  });
+
+  test("preserves V2 authored node names while allowing display labels", () => {
+    expect(stableRuntimeNodeName("v2", "vitruvian-primary", "vitruvian-primary", "Primary figure"))
+      .toBe("vitruvian-primary");
+    expect(stableRuntimeNodeName("v2", "vitruvian-ring", "vitruvian-ring", "Electric ring"))
+      .toBe("vitruvian-ring");
+    expect(stableRuntimeNodeName("legacy", "vitruvian-figure", "Vitruvian figure", "Hero"))
+      .toBe("Hero");
   });
 });

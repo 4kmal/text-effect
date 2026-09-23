@@ -66,6 +66,28 @@ export const detectRuntimeAssetKind = (nodeNames: Iterable<string>): RuntimeAsse
     : "legacy";
 };
 
+/**
+ * GLTFLoader usually returns a scene wrapper around authored nodes. Keep the
+ * wrapper for ownership, but animate the authored assembly when it exists.
+ */
+export const findAuthoredAssembly = (source: THREE.Group): THREE.Object3D =>
+  source.getObjectByName("vitruvian-v2-assembly") ?? source;
+
+const V2_AUTHORED_NODE_IDS = new Set([
+  "vitruvian-v2-assembly",
+  "vitruvian-primary",
+  "vitruvian-ghost",
+  "vitruvian-ring",
+]);
+
+/** Keep authored V2 names stable for GLB animation bindings and reimport. */
+export const stableRuntimeNodeName = (
+  assetKind: RuntimeAssetLayout["kind"],
+  id: string,
+  currentName: string,
+  requestedName: string,
+): string => assetKind === "v2" && V2_AUTHORED_NODE_IDS.has(id) ? currentName : requestedName;
+
 type ModelRoot = THREE.Group & { userData: { modelerId?: string } };
 
 type SourceTransform = {
@@ -246,12 +268,12 @@ export class ModelerScene {
     group.traverse((object) => nodeNames.push(object.name));
     this.assetKind = assetPath === "/modeler/vitruvian-v2.glb"
       || detectRuntimeAssetKind(nodeNames) === "v2" ? "v2" : assetPath === "local-import" ? "imported" : "legacy";
-    group.name = this.assetKind === "v2" ? "vitruvian-v2-assembly" : group.name || "Vitruvian figure";
-    group.userData.modelerId = this.assetKind === "v2" ? "vitruvian-v2-assembly" : "vitruvian-figure";
     this.baseAsset = group;
     this.model.add(group);
-    this.registerItem(group.userData.modelerId, group);
     if (this.assetKind === "v2") {
+      const assembly = findAuthoredAssembly(group);
+      if (assembly === group) assembly.name = "vitruvian-v2-assembly";
+      this.registerItem("vitruvian-v2-assembly", assembly);
       this.registerNamedItem(group, "vitruvian-primary");
       this.registerNamedItem(group, "vitruvian-ghost");
       this.registerNamedItem(group, "vitruvian-ring");
@@ -262,6 +284,9 @@ export class ModelerScene {
       this.registerRig("vitruvian-v2-primary-rig", group.getObjectByName("vitruvian-primary"));
       this.registerRig("vitruvian-v2-ghost-rig", group.getObjectByName("vitruvian-ghost"));
     } else {
+      group.name ||= "Vitruvian figure";
+      group.userData.modelerId = "vitruvian-figure";
+      this.registerItem("vitruvian-figure", group);
       this.protectedItemIds.add("vitruvian-figure");
       const ring = group.getObjectByName("vitruvian-ring");
       if (ring) {
@@ -324,7 +349,7 @@ export class ModelerScene {
   getSceneItems(): SceneItem[] {
     return Array.from(this.items, ([id, object]) => ({
       id,
-      name: object.name || id,
+      name: String(object.userData.modelerLabel ?? object.name ?? id),
       type: this.protectedItemIds.has(id) ? "model" : "primitive",
       visible: object.visible,
     }));
@@ -475,7 +500,14 @@ export class ModelerScene {
   setItem(id: string, values: { name?: string; visible?: boolean; position?: Vector3Tuple; rotation?: Vector3Tuple; scale?: Vector3Tuple; material?: RuntimeMaterial }): void {
     const item = this.items.get(id);
     if (!item) return;
-    if (values.name !== undefined) item.name = values.name;
+    if (values.name !== undefined) {
+      const stableName = stableRuntimeNodeName(this.assetKind, id, item.name, values.name);
+      if (stableName === item.name && this.assetKind === "v2" && V2_AUTHORED_NODE_IDS.has(id)) {
+        item.userData.modelerLabel = values.name;
+      } else {
+        item.name = stableName;
+      }
+    }
     if (values.visible !== undefined) item.visible = values.visible;
     const authored = this.authoredTransforms.get(id);
     if (values.position) {
