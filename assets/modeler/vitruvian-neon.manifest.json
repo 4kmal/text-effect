@@ -1,0 +1,56 @@
+{
+  "schema": "rapidscreen.model-project.v1",
+  "assetId": "vitruvian-neon",
+  "title": "Vitruvian Neon / literal multi-limb figure",
+  "source": {
+    "base": "MakeHuman Community base mesh",
+    "license": "CC0 1.0",
+    "sourceUrl": "https://github.com/makehumancommunity/makehuman/blob/master/makehuman/data/3dobjs/base.obj",
+    "sourceFileSha256": "bea00279464133e86b634220cd2774ebf3b470de280d11222a6b2269e4a8d950",
+    "referenceImage": "kept outside deployed public assets"
+  },
+  "files": {
+    "glb": "/modeler/vitruvian.glb",
+    "obj": "/modeler/vitruvian.obj",
+    "blender": "assets/modeler/vitruvian.blend"
+  },
+  "rig": {
+    "name": "VitruvianRig",
+    "root": "Root",
+    "poseableControls": [
+      "arm-left-upper",
+      "arm-left-lower",
+      "arm-right-upper",
+      "arm-right-lower",
+      "arm-left-upper-2",
+      "arm-left-lower-2",
+      "arm-right-upper-2",
+      "arm-right-lower-2",
+      "leg-left-upper",
+      "leg-left-lower",
+      "leg-right-upper",
+      "leg-right-lower",
+      "leg-left-upper-2",
+      "leg-left-lower-2",
+      "leg-right-upper-2",
+      "leg-right-lower-2"
+    ]
+  },
+  "animation": {
+    "name": "Vitruvian 360 Spin",
+    "fps": 60,
+    "durationSeconds": 4,
+    "keyframesDegrees": [
+      0,
+      90,
+      180,
+      270,
+      360
+    ]
+  },
+  "materials": [
+    "Electric Blue Emission",
+    "Deep Space Backdrop"
+  ],
+  "referencePathUsedForBuild": "C:\\Users\\Admin\\Pictures\\exepert\\651769894_18119728342718231_3670824622714637090_n.jpg"
+}
