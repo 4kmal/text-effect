@@ -305,6 +305,7 @@ const drawAscii = (
   source: HTMLCanvasElement,
   layer: TextLayer,
   values: FrameValues,
+  elapsedMs: number,
   projectSeed: number,
 ): void => {
   const raster = rasterizeText(source, layer, context)
@@ -319,6 +320,8 @@ const drawAscii = (
   const xOffset = layer.align === 'center' ? -width / 2 : layer.align === 'right' ? -width : 0
   const yOffset = -height / 2
   const fontSize = Math.max(8, raster.cellSize * 1.16)
+  const baseAlpha = context.globalAlpha
+  const timeBucket = Math.floor(Math.max(0, elapsedMs) / 80)
   context.font = `${fontSize}px ${FONT_FAMILIES[layer.font]}`
   context.textAlign = 'center'
   context.textBaseline = 'middle'
@@ -328,12 +331,30 @@ const drawAscii = (
       if (alpha < 0.08) {
         continue
       }
-      const flicker = noise(projectSeed, hashString(layer.id), row, column, Math.floor(values.intensity * 80))
-      const glyphIndex = Math.min(
-        ASCII_GLYPHS.length - 1,
-        Math.floor(clamp(alpha * (0.72 + intensity * 0.45) + flicker * 0.12, 0, 1) * ASCII_GLYPHS.length),
+      const flicker = noise(
+        projectSeed,
+        hashString(layer.id),
+        row,
+        column,
+        timeBucket,
+        Math.floor(values.intensity * 80),
       )
-      context.globalAlpha = clamp(0.35 + alpha * 0.65, 0, 1)
+      const baseGlyphIndex = Math.min(
+        ASCII_GLYPHS.length - 1,
+        Math.floor(
+          clamp(
+            alpha * (0.72 + intensity * 0.45) + flicker * 0.12,
+            0,
+            1,
+          ) * ASCII_GLYPHS.length,
+        ),
+      )
+      const glyphIndex = Math.max(
+        0,
+        baseGlyphIndex - Math.floor(flicker * (1 + intensity * 2)),
+      )
+      context.globalAlpha =
+        baseAlpha * clamp(0.35 + alpha * (0.58 + flicker * 0.16), 0, 1)
       context.fillText(
         ASCII_GLYPHS[glyphIndex],
         xOffset + column * spacing,
@@ -341,7 +362,7 @@ const drawAscii = (
       )
     }
   }
-  context.globalAlpha = 1
+  context.globalAlpha = baseAlpha
 }
 
 const drawLed = (
@@ -364,6 +385,7 @@ const drawLed = (
   const xStart = -width / 2 - scroll + 100
   const yStart = -height / 2
   const radius = Math.max(1, raster.cellSize * 0.18)
+  const baseAlpha = context.globalAlpha
   context.fillStyle = layer.color
   for (let row = 0; row < raster.height; row += 1) {
     for (let column = -2; column < raster.width + 4; column += 1) {
@@ -372,13 +394,14 @@ const drawLed = (
       const x = xStart + column * spacing
       const y = yStart + row * spacing
       const ambient = 0.08 + noise(projectSeed, row, column, Math.floor(elapsedMs / 80)) * 0.08
-      context.globalAlpha = alpha > 0.08 ? 0.36 + alpha * 0.64 : ambient
+      context.globalAlpha =
+        baseAlpha * (alpha > 0.08 ? 0.36 + alpha * 0.64 : ambient)
       context.beginPath()
       context.arc(x, y, radius, 0, Math.PI * 2)
       context.fill()
     }
   }
-  context.globalAlpha = 1
+  context.globalAlpha = baseAlpha
 }
 
 const drawWave = (
@@ -420,15 +443,16 @@ const drawGlitch = (
   const textWidth = context.measureText(layer.text).width
   const x = layer.align === 'center' ? 0 : layer.align === 'right' ? -textWidth : 0
   const channelOffset = 2 + intensity * 8
+  const baseAlpha = context.globalAlpha
   context.save()
   context.globalCompositeOperation = 'screen'
   context.fillStyle = '#ff304f'
-  context.globalAlpha = 0.72
+  context.globalAlpha = baseAlpha * 0.72
   context.fillText(layer.text, x - channelOffset, 0)
   context.fillStyle = '#32d7ff'
   context.fillText(layer.text, x + channelOffset, 0)
   context.globalCompositeOperation = 'source-over'
-  context.globalAlpha = 1
+  context.globalAlpha = baseAlpha
   context.fillStyle = layer.color
   context.fillText(layer.text, x, 0)
   const bars = Math.max(2, Math.ceil(2 + intensity * 7))
@@ -440,11 +464,11 @@ const drawGlitch = (
     const barHeight = 1 + noise(projectSeed, frame, index, 47) * layer.fontSize * 0.08
     const barX = (noise(projectSeed, frame, index, 67) - 0.5) * textWidth
     const barWidth = 20 + noise(projectSeed, frame, index, 83) * Math.max(40, textWidth * 0.7)
-    context.globalAlpha = 0.2 + noise(projectSeed, frame, index, 101) * 0.55
+    context.globalAlpha = baseAlpha * (0.2 + noise(projectSeed, frame, index, 101) * 0.55)
     context.fillStyle = index % 2 === 0 ? '#ff304f' : '#32d7ff'
     context.fillRect(barX, barY, barWidth, barHeight)
   }
-  context.globalAlpha = 1
+  context.globalAlpha = baseAlpha
   context.restore()
 }
 
@@ -477,7 +501,7 @@ const drawLayer = (
       drawTypewriter(context, layer, values, progress)
       break
     case 'ascii':
-      drawAscii(context, source, layer, values, project.seed)
+      drawAscii(context, source, layer, values, elapsedMs, project.seed)
       break
     case 'led':
       drawLed(context, source, layer, values, elapsedMs, project.seed)

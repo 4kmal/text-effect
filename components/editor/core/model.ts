@@ -189,7 +189,19 @@ const parseKeyframe = (input: unknown, path: string): Keyframe => {
   return { ...values, timeMs, easing }
 }
 
-const parseLayer = (input: unknown, index: number): TextLayer => {
+const parseKeyframeWithinDuration = (
+  input: unknown,
+  path: string,
+  durationMs: number,
+): Keyframe => {
+  const keyframe = parseKeyframe(input, path)
+  if (keyframe.timeMs < 0 || keyframe.timeMs > durationMs) {
+    throw new Error(`Invalid Text FX project: ${path}.timeMs must be within the project duration`)
+  }
+  return keyframe
+}
+
+const parseLayer = (input: unknown, index: number, durationMs: number): TextLayer => {
   const path = `layers[${index}]`
   if (!isRecord(input)) {
     throw new Error(`Invalid Text FX project: ${path} must be an object`)
@@ -218,8 +230,10 @@ const parseLayer = (input: unknown, index: number): TextLayer => {
   if (!isOneOf(['left', 'center', 'right'] as const, align)) {
     throw new Error(`Invalid Text FX project: ${path}.align must be left, center, or right`)
   }
-  if (!(startMs >= 0 && endMs > startMs)) {
-    throw new Error(`Invalid Text FX project: ${path}.startMs and endMs are out of order`)
+  if (!(startMs >= 0 && endMs > startMs && endMs <= durationMs)) {
+    throw new Error(
+      `Invalid Text FX project: ${path}.startMs and endMs must be within the project duration`,
+    )
   }
   if (typeof visible !== 'boolean') {
     throw new Error(`Invalid Text FX project: ${path}.visible must be a boolean`)
@@ -245,7 +259,11 @@ const parseLayer = (input: unknown, index: number): TextLayer => {
     visible,
     effect,
     keyframes: keyframesInput.map((keyframe, keyframeIndex) =>
-      parseKeyframe(keyframe, `${path}.keyframes[${keyframeIndex}]`),
+      parseKeyframeWithinDuration(
+        keyframe,
+        `${path}.keyframes[${keyframeIndex}]`,
+        durationMs,
+      ),
     ),
   }
 }
@@ -462,8 +480,12 @@ export function parseProject(input: unknown): TextFxProject {
   const backgroundInput = required(candidate, 'background', 'project')
   const layersInput = required(candidate, 'layers', 'project')
 
-  if (!(width > 0 && height > 0)) {
-    throw new Error('Invalid Text FX project: width and height must be greater than zero')
+  const isLandscape1080p = width > 0 && width <= 1920 && height > 0 && height <= 1080
+  const isPortrait1080p = width > 0 && width <= 1080 && height > 0 && height <= 1920
+  if (!isLandscape1080p && !isPortrait1080p) {
+    throw new Error(
+      'Invalid Text FX project: canvas must fit within 1920x1080, 1080x1920, or 1080x1080',
+    )
   }
   if (!(durationMs > 0 && durationMs <= 30_000)) {
     throw new Error('Invalid Text FX project: durationMs must be between 1 and 30000')
@@ -493,6 +515,6 @@ export function parseProject(input: unknown): TextFxProject {
       color2: stringField(backgroundInput, 'color2', 'project.background'),
       matteColor: stringField(backgroundInput, 'matteColor', 'project.background'),
     },
-    layers: layersInput.map((layer, index) => parseLayer(layer, index)),
+    layers: layersInput.map((layer, index) => parseLayer(layer, index, durationMs)),
   })
 }
