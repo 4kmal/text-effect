@@ -769,6 +769,7 @@ export default function EditorStudio() {
   };
 
   const addLayer = () => {
+    if (!project) return;
     const next = makeLayer(project, "scramble", layers.length);
     recordHistory();
     mutateProject(
@@ -1754,6 +1755,32 @@ export default function EditorStudio() {
                     )}
                   </div>
                 )}
+                {background.type === "transparent" && (
+                  <label className="fx-field">
+                    <span>MP4 matte color</span>
+                    <div className="fx-color-field">
+                      <input
+                        type="color"
+                        value={project.background.matteColor}
+                        onChange={(event) =>
+                          mutateProject((draft) => {
+                            draft.background.matteColor = event.target.value;
+                          })
+                        }
+                        aria-label="MP4 matte color"
+                      />
+                      <input
+                        value={project.background.matteColor}
+                        onChange={(event) =>
+                          mutateProject((draft) => {
+                            draft.background.matteColor = event.target.value;
+                          })
+                        }
+                        aria-label="MP4 matte hex color"
+                      />
+                    </div>
+                  </label>
+                )}
               </section>
               <section className="fx-inspector-section fx-layer-actions">
                 <button onClick={() => duplicateLayer(getLayerId(activeLayer))}>
@@ -1885,9 +1912,7 @@ export default function EditorStudio() {
                   >
                     {getKeyframes(layer).map((keyframe, index) => (
                       <button
-                        key={String(
-                          keyframe.id ?? `${getLayerId(layer)}-${index}`,
-                        )}
+                        key={`${getLayerId(layer)}-${index}`}
                         className={`fx-keyframe-dot ${selectedKeyframe?.layerId === getLayerId(layer) && selectedKeyframe?.index === index ? "is-selected" : ""}`}
                         style={{
                           left: `${(getKeyframeTime(keyframe) / durationMs) * 100}%`,
