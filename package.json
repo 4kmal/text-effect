@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "modeler:dev": "bun scripts/modeler-helper/dev.ts",
+    "modeler:helper": "bun scripts/modeler-helper/server.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
