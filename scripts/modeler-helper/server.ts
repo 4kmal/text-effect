@@ -389,7 +389,6 @@ const server = Bun.serve<SocketData>({
           headers: {
             ...Object.fromEntries(cors(origin)),
             "content-type": "video/quicktime",
-            "content-disposition": `attachment; filename="${id}.mov"`,
           },
         });
       }

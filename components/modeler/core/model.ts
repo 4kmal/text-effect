@@ -337,7 +337,7 @@ const blankRender = (): ModelRenderSettings => ({
   glow: true,
   glowIntensity: 1.8,
   glowRadius: 5,
-  outputFormat: "prores4444",
+  outputFormat: "webm",
 });
 
 export function createBlankModelProject(): ModelProject {
@@ -390,6 +390,8 @@ export function createVitruvianProject(): ModelProject {
   const project = createBlankModelProject();
   project.id = "vitruvian-project";
   project.name = "Vitruvian Signal";
+  project.camera.position = [0, 0, 9];
+  project.camera.target = [0, 0, 0];
   project.assets = [
     {
       id: "vitruvian",
@@ -399,11 +401,11 @@ export function createVitruvianProject(): ModelProject {
     },
   ];
   const figureMaterial: ModelMaterial = {
-    color: "#061a35",
-    emissive: "#0088ff",
-    emissiveIntensity: 2.6,
-    metalness: 0.25,
-    roughness: 0.35,
+    color: "#051126",
+    emissive: "#0654a8",
+    emissiveIntensity: 0.28,
+    metalness: 0.38,
+    roughness: 0.43,
     opacity: 1,
     transparent: false,
   };
@@ -417,9 +419,9 @@ export function createVitruvianProject(): ModelProject {
       type: "mesh",
       assetId: "vitruvian",
       transform: {
-        position: [0, -0.2, 0],
+        position: [0, 0, 0],
         rotation: [0, 0, 0],
-        scale: [1.45, 1.45, 1.45],
+        scale: [0.72, 0.72, 0.72],
       },
       material: figureMaterial,
       visible: true,
