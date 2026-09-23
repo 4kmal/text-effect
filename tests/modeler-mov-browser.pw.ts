@@ -5,7 +5,7 @@ const baseUrl = process.env.MODELER_TEST_URL ?? "http://localhost:3000";
 const channel = (process.env.MODELER_BROWSER_CHANNEL ?? "chrome") as "chrome" | "msedge";
 test.use({ viewport: { width: 1400, height: 900 }, acceptDownloads: true, channel });
 
-test("renders a transparent MOV from the scene through the local helper", async ({ page }, testInfo) => {
+test("renders a transparent Vitruvian V2 MOV through the local helper", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const network: string[] = [];
   page.on("requestfailed", (request) => network.push("FAILED " + request.url() + " " + request.failure()?.errorText));
@@ -15,8 +15,7 @@ test("renders a transparent MOV from the scene through the local helper", async 
   page.on("console", (message) => { if (message.type() === "error") network.push("CONSOLE " + message.text()); });
   await page.goto(baseUrl + "/modeler", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("Ready to sculpt, pose, and render.")).toBeVisible({ timeout: 20_000 });
-  await page.getByRole("button", { name: "EMPTY SCENE build from shapes" }).click();
-  await page.getByRole("button", { name: "sphere", exact: false }).click();
+  await page.getByRole("button", { name: "VITRUVIAN pose + 360 spin" }).click();
   await page.getByLabel("Canvas resolution").selectOption("1280x720");
   await page.getByLabel("Duration").fill("1");
   await page.getByLabel("Format").selectOption("prores4444");
@@ -29,7 +28,7 @@ test("renders a transparent MOV from the scene through the local helper", async 
     }),
   ]);
   expect(saved.suggestedFilename()).toMatch(/\.mov$/);
-  const path = testInfo.outputPath("modeler-sphere.mov");
+  const path = testInfo.outputPath("vitruvian-v2.mov");
   await saved.saveAs(path);
   const info = JSON.parse(execFileSync("ffprobe", [
     "-v", "error", "-show_streams", "-show_format", "-of", "json", path,
@@ -44,4 +43,11 @@ test("renders a transparent MOV from the scene through the local helper", async 
   expect(video?.height).toBe(720);
   expect(video?.avg_frame_rate).toBe("60/1");
   expect(Number(info.format.duration)).toBeCloseTo(1, 1);
+  const alpha = execFileSync("ffmpeg", [
+    "-v", "error", "-i", path, "-frames:v", "1", "-vf", "alphaextract",
+    "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1",
+  ], { maxBuffer: 2 * 1024 * 1024 });
+  expect(alpha[0]).toBe(0);
+  expect(alpha.some((value) => value > 0 && value < 255)).toBe(true);
+  expect(alpha.some((value) => value === 255)).toBe(true);
 });

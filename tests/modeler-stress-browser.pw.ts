@@ -17,6 +17,10 @@ test("renders the 1080p, 60 fps, 30-second Vitruvian spin", async ({ page }, tes
   await page.getByLabel("Canvas resolution").selectOption("1920x1080");
   await page.getByLabel("Duration").fill("30");
   await page.getByLabel("Format").selectOption("webm");
+  const stillDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Still PNG" }).click();
+  const stillPath = testInfo.outputPath("vitruvian-preview.png");
+  await (await stillDownload).saveAs(stillPath);
   const download = page.waitForEvent("download", { timeout: 1_700_000 });
   await page.getByRole("button", { name: "Render clip" }).click();
   const saved = await Promise.race([
@@ -41,5 +45,25 @@ test("renders the 1080p, 60 fps, 30-second Vitruvian spin", async ({ page }, tes
   expect(video?.nb_read_frames).toBe("1800");
   expect(video?.tags?.alpha_mode).toBe("1");
   expect(Number(info.format.duration)).toBeCloseTo(30, 1);
+  const frameArgs = ["-v", "error", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"];
+  const still = execFileSync("ffmpeg", ["-v", "error", "-i", stillPath, ...frameArgs.slice(2)], { maxBuffer: 12 * 1024 * 1024 });
+  const firstFrame = execFileSync("ffmpeg", ["-v", "error", "-c:v", "libvpx-vp9", "-i", path, ...frameArgs.slice(2)], { maxBuffer: 12 * 1024 * 1024 });
+  expect(firstFrame.length).toBe(still.length);
+  let alphaDifference = 0;
+  let colorDifference = 0;
+  let visibleSamples = 0;
+  let samples = 0;
+  for (let offset = 0; offset < still.length; offset += 128) {
+    alphaDifference += Math.abs(still[offset + 3]! - firstFrame[offset + 3]!);
+    samples += 1;
+    if (still[offset + 3]! > 128) {
+      colorDifference += Math.abs(still[offset]! - firstFrame[offset]!)
+        + Math.abs(still[offset + 1]! - firstFrame[offset + 1]!)
+        + Math.abs(still[offset + 2]! - firstFrame[offset + 2]!);
+      visibleSamples += 1;
+    }
+  }
+  expect(alphaDifference / samples).toBeLessThan(6);
+  expect(colorDifference / (visibleSamples * 3)).toBeLessThan(35);
   expect(errors).toEqual([]);
 });

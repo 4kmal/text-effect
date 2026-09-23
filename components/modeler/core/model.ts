@@ -488,8 +488,10 @@ export function createVitruvianV2Project(): ModelProject {
   const project = createBlankModelProject();
   project.id = "vitruvian-v2-project";
   project.name = "Vitruvian V2";
-  project.camera.position = [0, 1, 5.4];
+  project.camera.position = [0, 1, 3.7];
   project.camera.target = [0, 1, 0];
+  project.render.glowIntensity = 1.1;
+  project.render.glowRadius = 4;
   project.assets = [{
     id: "vitruvian-v2",
     name: "Vitruvian V2 assembly",
@@ -563,7 +565,7 @@ export function createVitruvianV2Project(): ModelProject {
     },
     {
       id: "v2-rim", name: "Electric rim", type: "point", color: "#1d86ff",
-      intensity: 22, position: [0, 2, 3], target: [0, 1, 0],
+      intensity: 3, position: [0, 2, 3], target: [0, 1, 0],
     },
   ];
   project.tracks = [{

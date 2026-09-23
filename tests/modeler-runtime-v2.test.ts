@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 
 import { createVitruvianProject, createVitruvianV2Project, evaluateModelFrame } from "../components/modeler/core";
-import { detectRuntimeAssetKind, findAuthoredAssembly, stableRuntimeNodeName } from "../components/modeler/runtime/scene";
+import { detectRuntimeAssetKind, findAuthoredAssembly, serializeStaticObj, stableRuntimeNodeName } from "../components/modeler/runtime/scene";
 
 describe("modeler V2 runtime contract", () => {
   test("recognizes the composite nodes and leaves legacy scenes on the old path", () => {
@@ -72,5 +72,24 @@ describe("modeler V2 runtime contract", () => {
       .toBe("vitruvian-ring");
     expect(stableRuntimeNodeName("legacy", "vitruvian-figure", "Vitruvian figure", "Hero"))
       .toBe("Hero");
+  });
+
+  test("bakes the current rig pose into static OBJ vertices", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 4));
+    geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4));
+    geometry.setIndex([0, 1, 2]);
+    const bone = new THREE.Bone();
+    const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+    const scene = new THREE.Group();
+    scene.add(bone, mesh);
+    scene.updateMatrixWorld(true);
+    mesh.bind(new THREE.Skeleton([bone]));
+    const before = serializeStaticObj(scene);
+    bone.position.x = 1;
+    const after = serializeStaticObj(scene);
+    const firstX = (obj: string) => Number(obj.split("\n").find((line) => line.startsWith("v "))?.split(" ")[1]);
+    expect(firstX(after) - firstX(before)).toBeCloseTo(1);
   });
 });

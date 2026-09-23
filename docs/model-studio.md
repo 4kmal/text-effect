@@ -21,7 +21,8 @@ rig independently. Use the timeline to scrub, add transform or pose keys, and
 preview the result. Mesh and Sculpt modes show the rig's rest pose while
 editing. In Mesh mode, click a face, edge, or vertex;
 Shift-click to add or remove from the selection. Remesh works on static meshes.
-GLB includes the rig and animation, while OBJ is a static mesh for 3D software.
+GLB includes the rig and animation, while OBJ bakes the current pose into a
+static mesh for 3D software.
 
 To rebuild the asset, install MPFB 2.0.17 from Blender's official extension
 source, then run `scripts/modeler-asset/build_vitruvian_v2.py` in Blender 5.2.

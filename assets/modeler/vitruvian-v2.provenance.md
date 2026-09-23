@@ -7,7 +7,7 @@ the runtime bundle contains the generated model, not the MPFB source code.
 - Base mesh SHA-256: `8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c`
 - MPFB archive SHA-256: `4f0a879d64a39bf646fbf5f53601ac678855da329d650617dca5737548239a87`
 - GLB SHA-256: `d89386327fce2346a93640b275a4c9da5deb66ba8f465654f5e0665a01cfa8db`
-- OBJ SHA-256: `54d5cdfccab3a916e406f04f90f91d5e689677e5cfd4a24fa1515015f7f4c2d1`
+- OBJ SHA-256: `5dfc3d49fcc915efa015fb0b3fd8726918b7be0f14692d2061dae99ac25a29c8`
 - Reference image: `local reference image excluded from deployment`
 
 Sources:

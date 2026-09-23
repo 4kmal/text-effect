@@ -101,6 +101,9 @@ type RigRuntime = {
   bones: Map<string, { bone: THREE.Bone; rest: THREE.Quaternion }>;
 };
 
+const boneRotation = (rotations: Record<string, Vector3Tuple>, runtimeName: string): Vector3Tuple =>
+  rotations[runtimeName] ?? rotations[runtimeName.replace(/([LR])$/, ".$1")] ?? [0, 0, 0];
+
 const DEFAULT_FRAME: RuntimeFrame = {
   rotation: [0, 0, 0],
   position: [0, 0, 0],
@@ -146,6 +149,36 @@ const download = (blob: Blob, filename: string): void => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 };
+
+export function serializeStaticObj(root: THREE.Object3D): string {
+  root.updateMatrixWorld(true);
+  const baked = new THREE.Group();
+  const geometries: THREE.BufferGeometry[] = [];
+  const vertex = new THREE.Vector3();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const geometry = object.geometry.clone();
+    const position = geometry.getAttribute("position");
+    if (!position) {
+      geometry.dispose();
+      return;
+    }
+    for (let index = 0; index < position.count; index += 1) {
+      object.getVertexPosition(index, vertex).applyMatrix4(object.matrixWorld);
+      position.setXYZ(index, vertex.x, vertex.y, vertex.z);
+    }
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, object.material);
+    mesh.name = object.name;
+    baked.add(mesh);
+    geometries.push(geometry);
+  });
+  try {
+    return new OBJExporter().parse(baked);
+  } finally {
+    geometries.forEach((geometry) => geometry.dispose());
+  }
+}
 
 export class ModelerScene {
   readonly scene = new THREE.Scene();
@@ -588,7 +621,7 @@ export class ModelerScene {
     for (const [rigId, rig] of this.rigRuntimes) {
       const rotations = rigFrames.get(rigId) ?? (rigId === "legacy-rig" ? value.boneRotations : undefined) ?? {};
       for (const [name, runtimeBone] of rig.bones) {
-        const angles = rotations[name] ?? [0, 0, 0];
+        const angles = boneRotation(rotations, name);
         const posed = new THREE.Quaternion().setFromEuler(new THREE.Euler(
           THREE.MathUtils.degToRad(angles[0]),
           THREE.MathUtils.degToRad(angles[1]),
@@ -700,7 +733,7 @@ export class ModelerScene {
       for (const [rigId, rig] of this.rigRuntimes) {
         const rotations = rigFrames.get(rigId) ?? (rigId === "legacy-rig" ? frame.boneRotations : undefined) ?? {};
         for (const [name, runtimeBone] of rig.bones) {
-          const degrees = rotations[name] ?? [0, 0, 0];
+          const degrees = boneRotation(rotations, name);
           const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(
             THREE.MathUtils.degToRad(degrees[0]),
             THREE.MathUtils.degToRad(degrees[1]),
@@ -731,8 +764,7 @@ export class ModelerScene {
   }
 
   exportObj(filename: string): void {
-    const exporter = new OBJExporter();
-    const data = exporter.parse(this.model);
+    const data = serializeStaticObj(this.model);
     download(new Blob([data], { type: "text/plain" }), filename);
   }
 

@@ -35,7 +35,7 @@ test("model studio loads V2, poses both figures, saves, exports, and keeps V1 im
   const primary = page.locator(".modeler-list-button").filter({ hasText: "Primary figure" }).first();
   await primary.click();
   const primaryBone = await page.getByLabel("Bone", { exact: true }).evaluate((node) =>
-    Array.from((node as HTMLSelectElement).options).find((option) => option.value.startsWith("primary_"))?.value ?? "",
+    Array.from((node as HTMLSelectElement).options).find((option) => option.value.includes("primary_upperarm01.L"))?.value ?? "",
   );
   expect(primaryBone).toMatch(/^primary_/);
   await page.getByLabel("Bone", { exact: true }).selectOption(primaryBone);
@@ -48,13 +48,36 @@ test("model studio loads V2, poses both figures, saves, exports, and keeps V1 im
   const ghost = page.locator(".modeler-list-button").filter({ hasText: "Second pose" }).first();
   await ghost.click();
   const ghostBone = await page.getByLabel("Bone", { exact: true }).evaluate((node) =>
-    Array.from((node as HTMLSelectElement).options).find((option) => option.value.startsWith("ghost_"))?.value ?? "",
+    Array.from((node as HTMLSelectElement).options).find((option) => option.value.includes("ghost_upperarm01.L"))?.value ?? "",
   );
   expect(ghostBone).toMatch(/^ghost_/);
   await page.getByLabel("Bone", { exact: true }).selectOption(ghostBone);
   await page.getByLabel("Rotation ° X").last().fill("-10");
   await page.getByRole("button", { name: "Add key" }).click();
   await expect(page.getByText(new RegExp(`boneRotation / ${ghostBone}`))).toBeVisible();
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByText(new RegExp(`boneRotation / ${ghostBone}`))).toHaveCount(0);
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(page.getByText(new RegExp(`boneRotation / ${ghostBone}`))).toBeVisible();
+  await expect.poll(() => page.evaluate((boneName) => new Promise<boolean>((resolve) => {
+    const opened = indexedDB.open("rapid-screen-modeler");
+    opened.onerror = () => resolve(false);
+    opened.onsuccess = () => {
+      const request = opened.result.transaction("drafts", "readonly").objectStore("drafts").getAll();
+      request.onerror = () => resolve(false);
+      request.onsuccess = () => {
+        const recent = request.result.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        resolve(recent?.project.name === "Vitruvian V2"
+          && recent.project.tracks.some((track: { boneName?: string }) => track.boneName === boneName));
+      };
+    };
+  }), ghostBone)).toBe(true);
+  await page.reload();
+  await expect(page.getByText("Ready to sculpt, pose, and render.")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Pose", exact: true }).click();
+  await ghost.click();
+  await expect(page.getByText(new RegExp(`boneRotation / ${ghostBone}`))).toBeVisible();
+  await expect(page.getByLabel("Rotation ° X").last()).toHaveValue("-10");
 
   await page.getByRole("button", { name: "sphere", exact: false }).click();
   await expect(page.locator(".modeler-list-button").filter({ hasText: "Sphere" })).toBeVisible();
@@ -83,8 +106,18 @@ test("model studio loads V2, poses both figures, saves, exports, and keeps V1 im
   loaded.scene.traverse((node) => nodeNames.push(node.name));
   expect(nodeNames).toEqual(expect.arrayContaining(["vitruvian-primary", "vitruvian-ghost", "vitruvian-ring"]));
   const trackNames = loaded.animations.flatMap((clip) => clip.tracks.map((track) => track.name));
-  expect(trackNames.some((name) => name.includes(primaryBone))).toBe(true);
-  expect(trackNames.some((name) => name.includes(ghostBone))).toBe(true);
+  expect(trackNames).toContain(`${primaryBone.replaceAll(".", "")}.quaternion`);
+  expect(trackNames).toContain(`${ghostBone.replaceAll(".", "")}.quaternion`);
+
+  const objDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "OBJ", exact: true }).click();
+  const obj = await objDownload;
+  expect(obj.suggestedFilename()).toMatch(/\.obj$/);
+  const objPath = testInfo.outputPath("vitruvian-scene.obj");
+  await obj.saveAs(objPath);
+  const objText = await readFile(objPath, "utf8");
+  expect(objText.match(/^v /gm)?.length).toBeGreaterThan(20_000);
+  expect(objText.match(/^f /gm)?.length).toBeGreaterThan(20_000);
 
   // A V1 GLB still loads through the local import path and is represented as
   // the original single figure, so saved legacy projects remain usable.
