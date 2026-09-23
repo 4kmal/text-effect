@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 type GltfJson = {
-  nodes?: Array<{ name?: string; rotation?: number[] }>
+  nodes?: Array<{ name?: string; rotation?: number[]; children?: number[] }>
+  scenes?: Array<{ nodes?: number[] }>
+  scene?: number
   skins?: Array<{ joints?: number[] }>
   animations?: Array<{
     name?: string
@@ -31,7 +35,9 @@ function readGlb(): { json: GltfJson; binary: Buffer } {
 describe('RapidScreen Vitruvian starter asset', () => {
   test('exports the named ring, rig controls, and 360 degree animation', () => {
     const { json, binary } = readGlb()
-    const nodeNames = (json.nodes ?? []).map((node) => node.name).filter(Boolean)
+    const nodeNames = (json.nodes ?? [])
+      .map((node) => node.name)
+      .filter((name): name is string => typeof name === 'string')
     const requiredBones = [
       'arm-left-upper', 'arm-left-lower', 'arm-right-upper', 'arm-right-lower',
       'arm-left-upper-2', 'arm-left-lower-2', 'arm-right-upper-2', 'arm-right-lower-2',
@@ -55,6 +61,17 @@ describe('RapidScreen Vitruvian starter asset', () => {
     expect(assetRoot?.rotation?.[2]).toBeCloseTo(0, 5)
     expect(assetRoot?.rotation?.[3]).toBeCloseTo(Math.SQRT1_2, 5)
 
+    const assetRootIndex = json.nodes?.findIndex((node) => node.name === 'VitruvianAsset') ?? -1
+    const runtimeOrientationIndex = json.nodes?.findIndex((node) => node.name === 'VitruvianRuntimeOrientation') ?? -1
+    const runtimeOrientation = runtimeOrientationIndex < 0 ? undefined : json.nodes?.[runtimeOrientationIndex]
+    expect(runtimeOrientationIndex).toBeGreaterThanOrEqual(0)
+    expect(runtimeOrientation?.rotation?.[0]).toBeCloseTo(0, 5)
+    expect(runtimeOrientation?.rotation?.[1]).toBeCloseTo(0, 5)
+    expect(runtimeOrientation?.rotation?.[2]).toBeCloseTo(1, 5)
+    expect(runtimeOrientation?.rotation?.[3]).toBeCloseTo(0, 5)
+    expect(runtimeOrientation?.children).toContain(assetRootIndex)
+    expect(json.scenes?.[json.scene ?? 0]?.nodes).toContain(runtimeOrientationIndex)
+
     const animation = json.animations?.find((candidate) => candidate.name === 'Vitruvian 360 Spin')
     expect(animation).toBeDefined()
     expect(animation?.channels.some((channel) => channel.target?.path === 'rotation')).toBe(true)
@@ -70,6 +87,20 @@ describe('RapidScreen Vitruvian starter asset', () => {
     const times = Array.from({ length: inputAccessor?.count ?? 0 }, (_, index) => binary.readFloatLE(inputOffset + index * 4))
     expect(times[0]).toBeCloseTo(1 / 60, 4)
     expect(times.at(-1)).toBeCloseTo(4)
+  })
+
+  test('loads head-up in the Three.js runtime coordinate system', async () => {
+    const bytes = readFileSync(resolve('public/modeler/vitruvian.glb'))
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+    const gltf = await new GLTFLoader().parseAsync(data, '')
+    const body = gltf.scene.getObjectByName('MakeHumanBody')
+    const foot = gltf.scene.getObjectByName('mesh-leg-left-foot-sole')
+    if (!body || !foot) throw new Error('The exported GLB is missing the body or foot mesh.')
+
+    const bodyCenter = new THREE.Box3().setFromObject(body).getCenter(new THREE.Vector3())
+    const footCenter = new THREE.Box3().setFromObject(foot).getCenter(new THREE.Vector3())
+    expect(bodyCenter.y).toBeGreaterThan(0)
+    expect(footCenter.y).toBeLessThan(0)
   })
 
   test('keeps the editable project manifest separate from the GLB payload', () => {

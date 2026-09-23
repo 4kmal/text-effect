@@ -14,6 +14,12 @@
     "obj": "/modeler/vitruvian.obj",
     "blender": "assets/modeler/vitruvian.blend"
   },
+  "coordinateSystem": {
+    "runtimeUpAxis": "Y",
+    "runtimeFront": "+Z",
+    "runtimeCorrection": "Z 180 degrees on the exported scene root",
+    "sourceReviewUpAxis": "-Y"
+  },
   "rig": {
     "name": "VitruvianRig",
     "root": "root",

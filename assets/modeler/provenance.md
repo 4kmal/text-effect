@@ -13,6 +13,12 @@ limbs, ring, materials, rig and animation are authored for RapidScreen. The
 supplied frontal reference is used only during local authoring and is not copied
 into `public/modeler` or included in the project bundle.
 
+The Blender source and review renders use the author's `-Y` up direction. The
+GLB adds a static `Z 180 degree` wrapper outside the animated asset root so the
+Three.js runtime receives head-up `+Y`, feet-down `-Y`, and the same front-facing
+`+Z` camera direction. The OBJ applies the same correction to its vertices and
+normals.
+
 ## Deliverables
 
 - `public/modeler/vitruvian.glb`: rigged, animated GLB for Three.js and 3D tools

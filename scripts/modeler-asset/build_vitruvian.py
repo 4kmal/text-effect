@@ -23,6 +23,7 @@ import json
 import math
 import os
 import shutil
+import struct
 from pathlib import Path
 
 import bpy
@@ -487,6 +488,61 @@ def save_render(scene: bpy.types.Scene, render_dir: Path, label: str, angle: int
     bpy.ops.render.render(write_still=True)
 
 
+def wrap_gltf_runtime_orientation(glb_path: Path) -> None:
+    """Flip the exported runtime Y axis without changing the face direction.
+
+    Blender's review scene is authored head-up toward negative Y. The glTF
+    exporter correctly produces Y-up geometry, but the modeler camera uses
+    positive Y as screen-up. A static 180 degree Z rotation around the whole
+    exported scene maps head to positive Y and feet to negative Y while
+    preserving the front-facing +Z direction. Keeping the wrapper outside the
+    animated asset root also leaves the turntable animation tracks intact.
+    """
+    payload = glb_path.read_bytes()
+    if payload[:4] != b"glTF" or struct.unpack_from("<I", payload, 4)[0] != 2:
+        raise ValueError(f"Not a GLB 2.0 file: {glb_path}")
+    json_length = struct.unpack_from("<I", payload, 12)[0]
+    json_start = 20
+    document = json.loads(payload[json_start : json_start + json_length].decode("utf-8"))
+    nodes = document.setdefault("nodes", [])
+    scene_entries = document.setdefault("scenes", [])
+    if not scene_entries:
+        raise ValueError(f"GLB has no scene: {glb_path}")
+    roots = list(scene_entries[document.get("scene", 0)].get("nodes", []))
+    wrapper_index = len(nodes)
+    nodes.append(
+        {
+            "name": "VitruvianRuntimeOrientation",
+            "rotation": [0.0, 0.0, 1.0, 0.0],
+            "children": roots,
+        }
+    )
+    scene_entries[document.get("scene", 0)]["nodes"] = [wrapper_index]
+    encoded_json = json.dumps(document, separators=(",", ":")).encode("utf-8")
+    encoded_json += b" " * ((4 - len(encoded_json) % 4) % 4)
+    old_json_end = json_start + json_length
+    binary = payload[old_json_end + 8 :]
+    json_chunk = struct.pack("<II", len(encoded_json), 0x4E4F534A) + encoded_json
+    binary_chunk = struct.pack("<II", len(binary), 0x004E4942) + binary
+    total_length = 12 + len(json_chunk) + len(binary_chunk)
+    header = struct.pack("<4sII", b"glTF", 2, total_length)
+    glb_path.write_bytes(header + json_chunk + binary_chunk)
+
+
+def flip_obj_runtime_orientation(obj_path: Path) -> None:
+    """Apply the same 180 degree Z runtime correction to OBJ vertices."""
+    corrected: list[str] = []
+    for line in obj_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True):
+        if line.startswith("v ") or line.startswith("vn "):
+            parts = line.rstrip("\r\n").split()
+            if len(parts) >= 4:
+                parts[1] = f"{-float(parts[1]):.9g}"
+                parts[2] = f"{-float(parts[2]):.9g}"
+                line = " ".join(parts) + ("\n" if line.endswith("\n") else "")
+        corrected.append(line)
+    obj_path.write_text("".join(corrected), encoding="utf-8")
+
+
 def export_files(public_dir: Path, asset_dir: Path, root: bpy.types.Object, rig: bpy.types.Object, scene: bpy.types.Scene):
     public_dir.mkdir(parents=True, exist_ok=True)
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -512,6 +568,7 @@ def export_files(public_dir: Path, asset_dir: Path, root: bpy.types.Object, rig:
         export_apply=False,
         export_yup=True,
     )
+    wrap_gltf_runtime_orientation(glb_path)
     # Keep the descriptive alias for older local drafts while the modeler core
     # uses the stable `/modeler/vitruvian.glb` URL.
     shutil.copyfile(glb_path, public_dir / "vitruvian-neon.glb")
@@ -524,11 +581,16 @@ def export_files(public_dir: Path, asset_dir: Path, root: bpy.types.Object, rig:
             obj.hide_render = True
             obj.hide_viewport = True
     bpy.ops.wm.obj_export(filepath=str(obj_path), export_materials=False, export_normals=True, export_uv=True)
+    flip_obj_runtime_orientation(obj_path)
     shutil.copyfile(obj_path, public_dir / "vitruvian-neon.obj")
     for obj, hide_render, hide_viewport in hidden:
         obj.hide_render = hide_render
         obj.hide_viewport = hide_viewport
-    # Keep the editable source current after the export operators.
+    # Restore the Blender review orientation before saving the editable source.
+    # The GLB/OBJ receive their documented runtime correction above; the source
+    # should open in the same upright orientation as the review renders.
+    root.rotation_mode = "XYZ"
+    root.rotation_euler = (0, 0, 0)
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
     shutil.copyfile(blend_path, asset_dir / "vitruvian.blend")
 
@@ -549,6 +611,12 @@ def write_manifest(public_dir: Path, asset_dir: Path, base_obj: Path, reference:
             "glb": "/modeler/vitruvian.glb",
             "obj": "/modeler/vitruvian.obj",
             "blender": "assets/modeler/vitruvian.blend",
+        },
+        "coordinateSystem": {
+            "runtimeUpAxis": "Y",
+            "runtimeFront": "+Z",
+            "runtimeCorrection": "Z 180 degrees on the exported scene root",
+            "sourceReviewUpAxis": "-Y",
         },
         "rig": {
             "name": rig.name,
@@ -589,6 +657,12 @@ The base mesh is reshaped into a stylized literal multi-limb figure. The extra
 limbs, ring, materials, rig and animation are authored for RapidScreen. The
 supplied frontal reference is used only during local authoring and is not copied
 into `public/modeler` or included in the project bundle.
+
+The Blender source and review renders use the author's `-Y` up direction. The
+GLB adds a static `Z 180 degree` wrapper outside the animated asset root so the
+Three.js runtime receives head-up `+Y`, feet-down `-Y`, and the same front-facing
+`+Z` camera direction. The OBJ applies the same correction to its vertices and
+normals.
 
 ## Deliverables
 
