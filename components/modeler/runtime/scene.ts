@@ -13,6 +13,19 @@ export type RuntimeFrame = {
   position: Vector3Tuple;
   scale: Vector3Tuple;
   boneRotations: Record<string, Vector3Tuple>;
+  /** Per-object deltas used by the V2 assembly; legacy fields remain supported. */
+  objects?: Array<{
+    id: string;
+    position: Vector3Tuple;
+    rotation: Vector3Tuple;
+    scale: Vector3Tuple;
+    visible?: boolean;
+  }>;
+  /** Per-rig pose deltas, keyed by the project rig id. */
+  rigs?: Array<{
+    id: string;
+    boneRotations: Record<string, Vector3Tuple>;
+  }>;
   glow: number;
   camera: Vector3Tuple;
   cameraTarget: Vector3Tuple;
@@ -38,7 +51,33 @@ export type SceneItem = {
   visible: boolean;
 };
 
+export type RuntimeAssetLayout = {
+  kind: "legacy" | "v2" | "imported";
+  objectIds: string[];
+  rigIds: string[];
+  bonesByRig: Record<string, string[]>;
+};
+
+/** Detect the stable authored names that identify the composite V2 asset. */
+export const detectRuntimeAssetKind = (nodeNames: Iterable<string>): RuntimeAssetLayout["kind"] => {
+  const names = new Set(nodeNames);
+  return names.has("vitruvian-primary") && names.has("vitruvian-ghost") && names.has("vitruvian-ring")
+    ? "v2"
+    : "legacy";
+};
+
 type ModelRoot = THREE.Group & { userData: { modelerId?: string } };
+
+type SourceTransform = {
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  scale: THREE.Vector3;
+};
+
+type RigRuntime = {
+  id: string;
+  bones: Map<string, { bone: THREE.Bone; rest: THREE.Quaternion }>;
+};
 
 const DEFAULT_FRAME: RuntimeFrame = {
   rotation: [0, 0, 0],
@@ -101,11 +140,18 @@ export class ModelerScene {
   private readonly key = new THREE.DirectionalLight(0x9dcfff, 2.5);
   private readonly rim = new THREE.DirectionalLight(0x1472ff, 3.5);
   private readonly loader = new GLTFLoader();
+  /** Legacy aggregate bone map kept for old projects and imported assets. */
   private readonly boneRest = new Map<THREE.Bone, THREE.Quaternion>();
+  /** V2 keeps the two armatures separate so pose tracks cannot cross-bind. */
+  private readonly rigRuntimes = new Map<string, RigRuntime>();
   private readonly items = new Map<string, THREE.Object3D>();
+  private readonly authoredTransforms = new Map<string, SourceTransform>();
   private selectionGuide: THREE.Group | null = null;
   private selectionTarget: THREE.Mesh | null = null;
   private baseAsset: ModelRoot | null = null;
+  private assetKind: RuntimeAssetLayout["kind"] = "legacy";
+  private assetPath = "/modeler/vitruvian.glb";
+  private protectedItemIds = new Set<string>();
   private renderedWidth = 0;
   private renderedHeight = 0;
   private disposed = false;
@@ -155,13 +201,13 @@ export class ModelerScene {
     this.model.name = "Model";
   }
 
-  async loadDefault(): Promise<void> {
+  async loadDefault(assetPath = "/modeler/vitruvian-v2.glb"): Promise<void> {
     try {
-      const gltf = await this.loader.loadAsync("/modeler/vitruvian.glb");
-      this.replaceBase(gltf.scene);
+      const gltf = await this.loader.loadAsync(assetPath);
+      this.replaceBase(gltf.scene, assetPath);
     } catch (error) {
       this.replaceBase(makeFallback());
-      throw new Error("The Vitruvian asset could not be loaded. A temporary preview is shown.", { cause: error });
+      throw new Error(`The Vitruvian asset could not be loaded from ${assetPath}. A temporary preview is shown.`, { cause: error });
     }
   }
 
@@ -169,7 +215,7 @@ export class ModelerScene {
     const data = await file.arrayBuffer();
     const gltf = await this.loader.parseAsync(data, "");
     gltf.scene.name = name;
-    this.replaceBase(gltf.scene);
+    this.replaceBase(gltf.scene, "local-import");
   }
 
   clearBase(): void {
@@ -177,12 +223,10 @@ export class ModelerScene {
     this.baseAsset!.name = "Empty scene";
   }
 
-  private replaceBase(source: THREE.Group): void {
+  private replaceBase(source: THREE.Group, assetPath = "local-import"): void {
     this.clearSelection();
     if (this.baseAsset) {
       this.model.remove(this.baseAsset);
-      this.items.delete("vitruvian-figure");
-      this.items.delete("vitruvian-ring");
       this.baseAsset.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -191,41 +235,112 @@ export class ModelerScene {
         }
       });
     }
+    this.items.clear();
+    this.authoredTransforms.clear();
+    this.boneRest.clear();
+    this.rigRuntimes.clear();
+    this.protectedItemIds.clear();
+    this.assetPath = assetPath;
     const group = source as ModelRoot;
-    group.name ||= "Vitruvian figure";
-    group.userData.modelerId = "vitruvian-figure";
+    const nodeNames: string[] = [];
+    group.traverse((object) => nodeNames.push(object.name));
+    this.assetKind = assetPath === "/modeler/vitruvian-v2.glb"
+      || detectRuntimeAssetKind(nodeNames) === "v2" ? "v2" : assetPath === "local-import" ? "imported" : "legacy";
+    group.name = this.assetKind === "v2" ? "vitruvian-v2-assembly" : group.name || "Vitruvian figure";
+    group.userData.modelerId = this.assetKind === "v2" ? "vitruvian-v2-assembly" : "vitruvian-figure";
     this.baseAsset = group;
     this.model.add(group);
-    this.items.set("vitruvian-figure", group);
-    const ring = group.getObjectByName("vitruvian-ring");
-    if (ring) {
-      ring.userData.modelerId = "vitruvian-ring";
-      this.items.set("vitruvian-ring", ring);
+    this.registerItem(group.userData.modelerId, group);
+    if (this.assetKind === "v2") {
+      this.registerNamedItem(group, "vitruvian-primary");
+      this.registerNamedItem(group, "vitruvian-ghost");
+      this.registerNamedItem(group, "vitruvian-ring");
+      this.protectedItemIds.add("vitruvian-v2-assembly");
+      this.protectedItemIds.add("vitruvian-primary");
+      this.protectedItemIds.add("vitruvian-ghost");
+      this.protectedItemIds.add("vitruvian-ring");
+      this.registerRig("vitruvian-v2-primary-rig", group.getObjectByName("vitruvian-primary"));
+      this.registerRig("vitruvian-v2-ghost-rig", group.getObjectByName("vitruvian-ghost"));
+    } else {
+      this.protectedItemIds.add("vitruvian-figure");
+      const ring = group.getObjectByName("vitruvian-ring");
+      if (ring) {
+        ring.userData.modelerId = "vitruvian-ring";
+        this.registerItem("vitruvian-ring", ring);
+        this.protectedItemIds.add("vitruvian-ring");
+      }
+      this.registerRig("legacy-rig", group);
     }
-    this.boneRest.clear();
     let meshIndex = 0;
+    const meshNames = new Set<string>();
     group.traverse((object) => {
-      if (object instanceof THREE.Bone) this.boneRest.set(object, object.quaternion.clone());
       if (object instanceof THREE.Mesh) {
         meshIndex += 1;
-        object.name ||= "Mesh " + meshIndex;
+        const originalName = object.name || "Mesh " + meshIndex;
+        let meshName = originalName;
+        let suffix = 2;
+        while (meshNames.has(meshName)) meshName = `${originalName} ${suffix++}`;
+        object.name = meshName;
+        meshNames.add(meshName);
         object.castShadow = false;
         object.frustumCulled = false;
       }
     });
   }
 
+  private registerItem(id: string, object: THREE.Object3D): void {
+    object.userData.modelerId = id;
+    this.items.set(id, object);
+    this.authoredTransforms.set(id, {
+      position: object.position.clone(),
+      quaternion: object.quaternion.clone(),
+      scale: object.scale.clone(),
+    });
+  }
+
+  private registerNamedItem(group: THREE.Group, name: string): void {
+    const object = group.getObjectByName(name);
+    if (!object) return;
+    this.registerItem(name, object);
+  }
+
+  private registerRig(id: string, target: THREE.Object3D | undefined): void {
+    if (!target) return;
+    const bones = new Map<string, { bone: THREE.Bone; rest: THREE.Quaternion }>();
+    const addBone = (bone: THREE.Bone): void => {
+      if (!bone.name || bones.has(bone.name)) return;
+      const rest = bone.quaternion.clone();
+      bones.set(bone.name, { bone, rest });
+      this.boneRest.set(bone, rest.clone());
+    };
+    target.traverse((object) => {
+      if (object instanceof THREE.Bone) addBone(object);
+      if (object instanceof THREE.SkinnedMesh) object.skeleton.bones.forEach(addBone);
+    });
+    if (!bones.size && target instanceof THREE.SkinnedMesh) target.skeleton.bones.forEach(addBone);
+    if (bones.size) this.rigRuntimes.set(id, { id, bones });
+  }
+
   getSceneItems(): SceneItem[] {
     return Array.from(this.items, ([id, object]) => ({
       id,
       name: object.name || id,
-      type: id === "vitruvian-figure" || id === "vitruvian-ring" ? "model" : "primitive",
+      type: this.protectedItemIds.has(id) ? "model" : "primitive",
       visible: object.visible,
     }));
   }
 
   getBones(): string[] {
     return Array.from(this.boneRest.keys()).map((bone) => bone.name).filter(Boolean);
+  }
+
+  getAssetLayout(): RuntimeAssetLayout {
+    return {
+      kind: this.assetKind,
+      objectIds: Array.from(this.items.keys()),
+      rigIds: Array.from(this.rigRuntimes.keys()),
+      bonesByRig: Object.fromEntries(Array.from(this.rigRuntimes, ([id, rig]) => [id, Array.from(rig.bones.keys())])),
+    };
   }
 
   getMeshes(): string[] {
@@ -337,15 +452,21 @@ export class ModelerScene {
     group.add(mesh);
     this.model.add(group);
     this.items.set(id, group);
+    this.authoredTransforms.set(id, {
+      position: group.position.clone(),
+      quaternion: group.quaternion.clone(),
+      scale: group.scale.clone(),
+    });
   }
 
   removeItem(id: string): void {
-    if (id === "vitruvian-figure" || id === "vitruvian-ring") return;
+    if (this.protectedItemIds.has(id)) return;
     const item = this.items.get(id);
     if (!item) return;
     if (this.selectionTarget && item.getObjectById(this.selectionTarget.id)) this.clearSelection();
     this.model.remove(item);
     this.items.delete(id);
+    this.authoredTransforms.delete(id);
     item.traverse((object) => {
       if (object instanceof THREE.Mesh) object.geometry.dispose();
     });
@@ -356,9 +477,23 @@ export class ModelerScene {
     if (!item) return;
     if (values.name !== undefined) item.name = values.name;
     if (values.visible !== undefined) item.visible = values.visible;
-    if (values.position) item.position.set(...values.position);
-    if (values.rotation) item.rotation.set(...values.rotation.map((value) => THREE.MathUtils.degToRad(value)) as Vector3Tuple);
-    if (values.scale) item.scale.set(...values.scale);
+    const authored = this.authoredTransforms.get(id);
+    if (values.position) {
+      const position = authored?.position.clone() ?? new THREE.Vector3();
+      item.position.copy(position.add(new THREE.Vector3(...values.position)));
+    }
+    if (values.rotation) {
+      const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        THREE.MathUtils.degToRad(values.rotation[0]),
+        THREE.MathUtils.degToRad(values.rotation[1]),
+        THREE.MathUtils.degToRad(values.rotation[2]),
+      ));
+      item.quaternion.copy(authored?.quaternion ?? new THREE.Quaternion()).multiply(delta);
+    }
+    if (values.scale) {
+      const scale = authored?.scale.clone() ?? new THREE.Vector3(1, 1, 1);
+      item.scale.copy(scale.multiply(new THREE.Vector3(...values.scale)));
+    }
     if (values.material) {
       const settings = values.material;
       item.traverse((object) => {
@@ -401,30 +536,47 @@ export class ModelerScene {
     };
   }
 
+  private applyRuntimeFrame(frame: RuntimeFrame): void {
+    const value = { ...DEFAULT_FRAME, ...frame };
+    const objectFrames = value.objects ?? [{
+      id: this.assetKind === "v2" ? "vitruvian-v2-assembly" : "vitruvian-figure",
+      position: value.position,
+      rotation: value.rotation,
+      scale: value.scale,
+    }];
+    for (const object of objectFrames) {
+      this.setItem(object.id, {
+        position: object.position,
+        rotation: object.rotation,
+        scale: object.scale,
+        visible: object.visible,
+      });
+    }
+    const rigFrames = new Map((value.rigs ?? []).map((rig) => [rig.id, rig.boneRotations]));
+    for (const [rigId, rig] of this.rigRuntimes) {
+      const rotations = rigFrames.get(rigId) ?? (rigId === "legacy-rig" ? value.boneRotations : undefined) ?? {};
+      for (const [name, runtimeBone] of rig.bones) {
+        const angles = rotations[name] ?? [0, 0, 0];
+        const posed = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+          THREE.MathUtils.degToRad(angles[0]),
+          THREE.MathUtils.degToRad(angles[1]),
+          THREE.MathUtils.degToRad(angles[2]),
+        ));
+        runtimeBone.bone.quaternion.copy(runtimeBone.rest).multiply(posed);
+      }
+    }
+  }
+
   renderFrame(frame: RuntimeFrame, width: number, height: number, transparent = true, matte = "#080a0d", showGuides = true): HTMLCanvasElement {
     if (this.disposed) throw new Error("The 3D renderer has been closed.");
     const value = { ...DEFAULT_FRAME, ...frame };
-    const figure = this.baseAsset;
-    if (figure) {
-      figure.position.set(...value.position);
-      figure.rotation.set(...value.rotation.map(THREE.MathUtils.degToRad) as Vector3Tuple);
-      figure.scale.set(...value.scale);
-    }
+    this.applyRuntimeFrame(value);
     this.applyingFrame = true;
     this.camera.position.set(...value.camera);
     this.camera.fov = value.fov;
     this.controls.target.set(...value.cameraTarget);
     this.controls.update();
     this.applyingFrame = false;
-    for (const [bone, rest] of this.boneRest) {
-      const angles = value.boneRotations[bone.name] ?? [0, 0, 0];
-      const posed = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-        THREE.MathUtils.degToRad(angles[0]),
-        THREE.MathUtils.degToRad(angles[1]),
-        THREE.MathUtils.degToRad(angles[2]),
-      ));
-      bone.quaternion.copy(rest).multiply(posed);
-    }
     this.key.intensity = value.lightIntensity;
     if (this.selectionGuide && this.selectionTarget) {
       this.model.updateMatrixWorld(true);
@@ -479,42 +631,70 @@ export class ModelerScene {
     const fps = 60;
     const count = Math.max(2, Math.ceil(durationMs / 1000 * fps) + 1);
     const times: number[] = [];
-    const rootRotation: number[] = [];
-    const rootPosition: number[] = [];
-    const rootScale: number[] = [];
-    const boneValues = new Map<THREE.Bone, number[]>();
-    for (const bone of this.boneRest.keys()) boneValues.set(bone, []);
+    const objectValues = new Map<string, { rotations: number[]; positions: number[]; scales: number[] }>();
+    for (const id of this.items.keys()) objectValues.set(id, { rotations: [], positions: [], scales: [] });
+    const boneValues = new Map<string, number[]>();
+    for (const rig of this.rigRuntimes.values()) {
+      for (const [name] of rig.bones) boneValues.set(`${rig.id}:${name}`, []);
+    }
     for (let index = 0; index < count; index += 1) {
       const timeMs = index === count - 1 ? durationMs : Math.min(durationMs, index * 1000 / fps);
       const frame = sample(timeMs);
       times.push(timeMs / 1000);
-      const root = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-        THREE.MathUtils.degToRad(frame.rotation[0]),
-        THREE.MathUtils.degToRad(frame.rotation[1]),
-        THREE.MathUtils.degToRad(frame.rotation[2]),
-      ));
-      rootRotation.push(root.x, root.y, root.z, root.w);
-      rootPosition.push(...frame.position);
-      rootScale.push(...frame.scale);
-      for (const [bone, rest] of this.boneRest) {
-        const degrees = frame.boneRotations[bone.name] ?? [0, 0, 0];
-        const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-          THREE.MathUtils.degToRad(degrees[0]),
-          THREE.MathUtils.degToRad(degrees[1]),
-          THREE.MathUtils.degToRad(degrees[2]),
+      const objects = frame.objects ?? [{
+        id: this.assetKind === "v2" ? "vitruvian-v2-assembly" : "vitruvian-figure",
+        position: frame.position,
+        rotation: frame.rotation,
+        scale: frame.scale,
+      }];
+      for (const object of objects) {
+        const item = this.items.get(object.id);
+        const values = objectValues.get(object.id);
+        if (!item || !values) continue;
+        const authored = this.authoredTransforms.get(object.id);
+        const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+          THREE.MathUtils.degToRad(object.rotation[0]),
+          THREE.MathUtils.degToRad(object.rotation[1]),
+          THREE.MathUtils.degToRad(object.rotation[2]),
         ));
-        const pose = rest.clone().multiply(delta);
-        boneValues.get(bone)!.push(pose.x, pose.y, pose.z, pose.w);
+        const quaternion = (authored?.quaternion.clone() ?? new THREE.Quaternion()).multiply(rotation);
+        const position = (authored?.position.clone() ?? new THREE.Vector3()).add(new THREE.Vector3(...object.position));
+        const scale = (authored?.scale.clone() ?? new THREE.Vector3(1, 1, 1)).multiply(new THREE.Vector3(...object.scale));
+        values.rotations.push(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+        values.positions.push(position.x, position.y, position.z);
+        values.scales.push(scale.x, scale.y, scale.z);
+      }
+      const rigFrames = new Map((frame.rigs ?? []).map((rig) => [rig.id, rig.boneRotations]));
+      for (const [rigId, rig] of this.rigRuntimes) {
+        const rotations = rigFrames.get(rigId) ?? (rigId === "legacy-rig" ? frame.boneRotations : undefined) ?? {};
+        for (const [name, runtimeBone] of rig.bones) {
+          const degrees = rotations[name] ?? [0, 0, 0];
+          const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+            THREE.MathUtils.degToRad(degrees[0]),
+            THREE.MathUtils.degToRad(degrees[1]),
+            THREE.MathUtils.degToRad(degrees[2]),
+          ));
+          const pose = runtimeBone.rest.clone().multiply(delta);
+          boneValues.get(`${rigId}:${name}`)!.push(pose.x, pose.y, pose.z, pose.w);
+        }
       }
     }
-    const tracks: THREE.KeyframeTrack[] = [
-      new THREE.QuaternionKeyframeTrack(`${this.baseAsset?.name ?? "Vitruvian figure"}.quaternion`, times, rootRotation),
-      new THREE.VectorKeyframeTrack(`${this.baseAsset?.name ?? "Vitruvian figure"}.position`, times, rootPosition),
-      new THREE.VectorKeyframeTrack(`${this.baseAsset?.name ?? "Vitruvian figure"}.scale`, times, rootScale),
-    ];
-    for (const [bone, values] of boneValues) {
-      if (bone.name) tracks.push(new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, values));
+    const tracks: THREE.KeyframeTrack[] = [];
+    for (const [id, values] of objectValues) {
+      const object = this.items.get(id);
+      if (!object || !values.rotations.length) continue;
+      const path = object.name || id;
+      tracks.push(new THREE.QuaternionKeyframeTrack(`${path}.quaternion`, times, values.rotations));
+      tracks.push(new THREE.VectorKeyframeTrack(`${path}.position`, times, values.positions));
+      tracks.push(new THREE.VectorKeyframeTrack(`${path}.scale`, times, values.scales));
     }
+    for (const [key, values] of boneValues) {
+      const [rigId, ...nameParts] = key.split(":");
+      const name = nameParts.join(":");
+      const bone = this.rigRuntimes.get(rigId)?.bones.get(name)?.bone;
+      if (bone?.name && values.length) tracks.push(new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, values));
+    }
+    this.applyRuntimeFrame(sample(0));
     return new THREE.AnimationClip("RapidScreen motion", durationMs / 1000, tracks);
   }
 

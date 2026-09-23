@@ -30,7 +30,7 @@ import {
   createBlankModelProject,
   createMeshSelection,
   createModelDraftStore,
-  createVitruvianProject,
+  createVitruvianV2Project,
   defaultMaterial,
   defaultTransform,
   evaluateModelFrame,
@@ -102,6 +102,8 @@ const makeId = (prefix: string) =>
     ? crypto.randomUUID().slice(0, 8)
     : Math.random().toString(36).slice(2, 10));
 
+const createStarterProject = createVitruvianV2Project;
+
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -112,7 +114,9 @@ const downloadBlob = (blob: Blob, filename: string) => {
 };
 
 const frameForScene = (frame: EvaluatedModelFrame, project: ModelProject): RuntimeFrame => {
-  const figure = frame.objects.find((object) => object.id === "vitruvian-figure");
+  const figure = frame.objects.find((object) => object.id === "vitruvian-figure")
+    ?? frame.objects.find((object) => object.id === "vitruvian-v2-assembly")
+    ?? frame.objects.find((object) => object.assetId);
   const rig = frame.rigs.find((item) => item.id === figure?.rigId);
   const boneRotations: Record<string, Vector3Tuple> = {};
   if (rig) {
@@ -120,6 +124,17 @@ const frameForScene = (frame: EvaluatedModelFrame, project: ModelProject): Runti
       boneRotations[name] = pose.rotation;
     }
   }
+  const objects = frame.objects.map((object) => ({
+    id: object.id,
+    position: object.transform.position,
+    rotation: object.transform.rotation,
+    scale: object.transform.scale,
+    visible: object.visible,
+  }));
+  const rigs = frame.rigs.map((item) => ({
+    id: item.id,
+    boneRotations: Object.fromEntries(Object.entries(item.pose).map(([name, pose]) => [name, pose.rotation])) as Record<string, Vector3Tuple>,
+  }));
   return {
     position: figure?.transform.position ?? [0, 0, 0],
     rotation: figure?.transform.rotation ?? [0, 0, 0],
@@ -131,6 +146,8 @@ const frameForScene = (frame: EvaluatedModelFrame, project: ModelProject): Runti
     lightIntensity: frame.lights.find((light) => light.type !== "ambient")?.intensity ?? 2.5,
     glow: project.render.glow ? project.render.glowIntensity / 3 : 0,
     glowRadius: project.render.glowRadius,
+    objects,
+    rigs,
   };
 };
 
@@ -148,9 +165,9 @@ const syncScene = (scene: ModelerScene, frame: EvaluatedModelFrame, project: Mod
     scene.setItem(object.id, {
       name: object.name,
       visible: object.visible,
-      position: object.id === "vitruvian-figure" ? undefined : object.transform.position,
-      rotation: object.id === "vitruvian-figure" ? undefined : object.transform.rotation,
-      scale: object.id === "vitruvian-figure" ? undefined : object.transform.scale,
+      position: object.transform.position,
+      rotation: object.transform.rotation,
+      scale: object.transform.scale,
       material: object.material,
     });
   }
@@ -172,8 +189,8 @@ const trackValue = (project: ModelProject, property: ModelTrackProperty, targetI
 };
 
 export default function ModelerStudio() {
-  const [project, setProject] = useState<ModelProject>(createVitruvianProject);
-  const [selectedId, setSelectedId] = useState("vitruvian-figure");
+  const [project, setProject] = useState<ModelProject>(createStarterProject);
+  const [selectedId, setSelectedId] = useState("vitruvian-v2-assembly");
   const [mode, setMode] = useState<Mode>("object");
   const [timeMs, setTimeMs] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -215,6 +232,11 @@ export default function ModelerStudio() {
   const projectRef = useRef(project);
   projectRef.current = project;
 
+  useEffect(() => {
+    if (!selectedRig) return;
+    if (!selectedRig.pose[selectedBone]) setSelectedBone(selectedRig.bones[0]?.name ?? "");
+  }, [selectedRig, selectedBone]);
+
   const commit = useCallback((change: (draft: ModelProject) => void) => {
     const current = projectRef.current;
     const next = cloneModelProject(current);
@@ -245,7 +267,10 @@ export default function ModelerStudio() {
     const evaluated = evaluateModelFrame(value, editRest ? 0 : atMs);
     syncScene(scene, evaluated, value);
     const frame = frameForScene(evaluated, value);
-    if (editRest) frame.boneRotations = {};
+    if (editRest) {
+      frame.boneRotations = {};
+      frame.rigs = frame.rigs?.map((rig) => ({ ...rig, boneRotations: {} }));
+    }
     scene.fitPreview(
       frame,
       value.render.outputFormat !== "mp4" && value.render.transparent,
@@ -266,8 +291,8 @@ export default function ModelerStudio() {
       const bytes = await draftStoreRef.current!.loadAsset(asset.storageKey);
       if (!bytes) throw new Error("The model mesh for this draft is missing from local storage.");
       await scene.loadGlb(new Blob([bytes], { type: "model/gltf-binary" }), asset.name);
-    } else if (asset.path === "/modeler/vitruvian.glb") {
-      await scene.loadDefault();
+    } else if (asset.path === "/modeler/vitruvian.glb" || asset.path === "/modeler/vitruvian-v2.glb") {
+      await scene.loadDefault(asset.path);
     } else {
       throw new Error("This project references a mesh that is not available locally.");
     }
@@ -296,7 +321,8 @@ export default function ModelerStudio() {
     };
     void (async () => {
       try {
-        await scene.loadDefault();
+        const starter = createStarterProject();
+        await loadProjectAsset(starter);
         const saved = await draftStoreRef.current!.listDrafts();
         if (!active) return;
         setDrafts(saved);
@@ -445,11 +471,11 @@ export default function ModelerStudio() {
     setPlaying(false);
     setTimeMs(0);
     historyRef.current = { past: [], future: [] };
-    const next = starter ? createVitruvianProject() : createBlankModelProject();
+    const next = starter ? createStarterProject() : createBlankModelProject();
     next.id = makeId("scene");
     if (starter) {
       try {
-        await sceneRef.current?.loadDefault();
+        await loadProjectAsset(next);
       } catch (error) {
         notify(error instanceof Error ? error.message : "The starter asset could not be loaded.", true);
       }
@@ -457,7 +483,7 @@ export default function ModelerStudio() {
       sceneRef.current?.clearBase();
     }
     setProject(next);
-    setSelectedId(starter ? "vitruvian-figure" : "");
+    setSelectedId(starter ? next.objects[0]?.id ?? "vitruvian-v2-assembly" : "");
     notify(starter ? "Vitruvian preset loaded." : "New scene created.");
   };
 
@@ -638,36 +664,46 @@ export default function ModelerStudio() {
       await sceneRef.current?.loadGlb(file, file.name.replace(/\.glb$/i, ""));
       const storageKey = makeId("mesh") + ".glb";
       await draftStoreRef.current!.saveAsset(storageKey, file);
-      const bones = sceneRef.current?.getBones() ?? [];
+      const layout = sceneRef.current?.getAssetLayout();
+      const importedLayout = layout ?? { kind: "imported" as const, objectIds: ["vitruvian-figure"], rigIds: [], bonesByRig: {} };
+      const objectIds = importedLayout.kind === "v2"
+        ? ["vitruvian-v2-assembly", "vitruvian-primary", "vitruvian-ghost", "vitruvian-ring"].filter((id) => importedLayout.objectIds.includes(id))
+        : ["vitruvian-figure"];
+      const defaultSelected = importedLayout.kind === "v2" ? "vitruvian-v2-assembly" : "vitruvian-figure";
       commit((draft) => {
         draft.name = file.name.replace(/\.glb$/i, "");
         draft.assets = [{ id: "vitruvian", name: file.name, kind: "glb", storageKey }];
-        draft.objects = [{
-          id: "vitruvian-figure",
-          name: draft.name,
-          type: "mesh",
+        draft.objects = objectIds.map((id) => ({
+          id,
+          name: id === defaultSelected ? draft.name : id.replace(/^vitruvian-/, ""),
+          type: id === "vitruvian-v2-assembly" ? "group" as const : id === "vitruvian-ring" ? "ring" as const : "mesh" as const,
           assetId: "vitruvian",
-          rigId: bones.length ? "imported-rig" : undefined,
+          parentId: importedLayout.kind === "v2" && id !== "vitruvian-v2-assembly" ? "vitruvian-v2-assembly" : undefined,
+          rigId: id === "vitruvian-primary" ? "vitruvian-v2-primary-rig" : id === "vitruvian-ghost" ? "vitruvian-v2-ghost-rig" : importedLayout.kind !== "v2" ? importedLayout.rigIds[0] : undefined,
           transform: defaultTransform(),
           material: defaultMaterial(),
           visible: true,
           castShadow: false,
           receiveShadow: false,
-        }];
-        draft.rigs = bones.length ? [{
-          id: "imported-rig",
-          name: "Imported rig",
-          bones: bones.map((name) => ({ name, rest: defaultTransform() })),
-          pose: Object.fromEntries(bones.map((name) => [name, {
-            position: [0, 0, 0] as Vec3,
-            rotation: [0, 0, 0] as Vec3,
-            scale: [1, 1, 1] as Vec3,
-          }])),
-        }] : [];
+        }));
+        draft.rigs = importedLayout.rigIds.map((id) => {
+          const rigBones = importedLayout.bonesByRig[id] ?? [];
+          return {
+            id,
+            name: id.replace(/^vitruvian-v2-/, "").replace(/-rig$/, "") + " rig",
+            bones: rigBones.map((name) => ({ name, rest: defaultTransform() })),
+            pose: Object.fromEntries(rigBones.map((name) => [name, {
+              position: [0, 0, 0] as Vec3,
+              rotation: [0, 0, 0] as Vec3,
+              scale: [1, 1, 1] as Vec3,
+            }])),
+          };
+        });
         draft.tracks = [];
       });
-      setSelectedId("vitruvian-figure");
-      setSelectedBone(bones[0] ?? "");
+      setSelectedId(defaultSelected);
+      const firstRig = importedLayout.rigIds[0];
+      setSelectedBone(firstRig ? importedLayout.bonesByRig[firstRig]?.[0] ?? "" : "");
       notify("GLB loaded and stored in your browser.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "The GLB could not be loaded.", true);
@@ -887,7 +923,7 @@ export default function ModelerStudio() {
               <button className="modeler-button" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import GLB</button>
               <input ref={fileRef} type="file" accept=".glb,model/gltf-binary" hidden onChange={(event) => void onModelFile(event)} />
             </div>
-            <p className="modeler-hint">The first figure is an editable rigged GLB. Imported meshes stay on this device.</p>
+            <p className="modeler-hint">The V2 preset has two independently poseable figures and a ring. Imported meshes stay on this device.</p>
           </PanelSection>
           {showDrafts && <PanelSection title="Named drafts" aside={String(drafts.length)}>
             <div className="modeler-list">
@@ -969,11 +1005,11 @@ export default function ModelerStudio() {
               <div className="modeler-action-row">
                 <button
                   className="modeler-button"
-                  disabled={selected.id === "vitruvian-figure"}
+                  disabled={Boolean(selected.assetId) || selected.type === "group"}
                   onClick={() => {
                     commit((draft) => { draft.objects = draft.objects.filter((item) => item.id !== selected.id); });
                     sceneRef.current?.removeItem(selected.id);
-                    setSelectedId("vitruvian-figure");
+                    setSelectedId(project.objects.find((object) => !object.assetId)?.id ?? "");
                   }}
                 ><Trash2 size={12} /> Delete</button>
               </div>
