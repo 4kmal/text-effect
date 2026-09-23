@@ -330,20 +330,15 @@ export default function ModelerStudio() {
     };
     void (async () => {
       try {
-        const starter = createStarterProject();
-        await loadProjectAsset(starter);
         const saved = await draftStoreRef.current!.listDrafts();
         if (!active) return;
         setDrafts(saved);
-        if (saved[0]) {
-          const recent = await draftStoreRef.current!.loadDraft(saved[0].id);
-          if (recent) {
-            await loadProjectAsset(recent.project);
-            if (!active) return;
-            setProject(recent.project);
-            setSelectedId(recent.project.objects[0]?.id ?? "");
-          }
-        }
+        const recent = saved[0] ? await draftStoreRef.current!.loadDraft(saved[0].id) : null;
+        const initialProject = recent?.project ?? createStarterProject();
+        await loadProjectAsset(initialProject);
+        if (!active) return;
+        setProject(initialProject);
+        setSelectedId(initialProject.objects[0]?.id ?? "");
         notify("Ready to sculpt, pose, and render.");
       } catch (error) {
         if (active) notify(error instanceof Error ? error.message : "The studio could not load its scene.", true);
