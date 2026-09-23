@@ -1,3 +1,5 @@
+import { mpfbStandardBones } from "./mpfb-rig";
+
 export const MODEL_PROJECT_VERSION = 1 as const;
 
 export type ModelProjectVersion = typeof MODEL_PROJECT_VERSION;
@@ -478,6 +480,100 @@ export function createVitruvianProject(): ModelProject {
       })),
     },
   ];
+  return project;
+}
+
+/** A separate starter leaves existing V1 draft manifests and their asset URL intact. */
+export function createVitruvianV2Project(): ModelProject {
+  const project = createBlankModelProject();
+  project.id = "vitruvian-v2-project";
+  project.name = "Vitruvian V2";
+  project.camera.position = [0, 1, 5.4];
+  project.camera.target = [0, 1, 0];
+  project.assets = [{
+    id: "vitruvian-v2",
+    name: "Vitruvian V2 assembly",
+    kind: "glb",
+    path: "/modeler/vitruvian-v2.glb",
+  }];
+
+  const assemblyMaterial: ModelMaterial = {
+    color: "#071c3b", emissive: "#006de4", emissiveIntensity: 0.2,
+    metalness: 0.18, roughness: 0.45, opacity: 1, transparent: false,
+  };
+  const primaryMaterial: ModelMaterial = {
+    ...assemblyMaterial,
+    color: "#063c9d", emissive: "#0068e8", emissiveIntensity: 0.7,
+  };
+  const ghostMaterial: ModelMaterial = {
+    ...assemblyMaterial,
+    color: "#138aff", emissive: "#177dff", emissiveIntensity: 0.45,
+    opacity: 0.32, transparent: true,
+  };
+  const ringMaterial: ModelMaterial = {
+    ...assemblyMaterial,
+    color: "#1689ff", emissive: "#238bff", emissiveIntensity: 1.3,
+  };
+  project.objects = [
+    {
+      id: "vitruvian-v2-assembly", name: "Vitruvian V2 assembly", type: "group",
+      transform: defaultTransform(), material: assemblyMaterial,
+      visible: true, castShadow: false, receiveShadow: false,
+    },
+    {
+      id: "vitruvian-primary", name: "Primary figure", type: "mesh",
+      assetId: "vitruvian-v2", parentId: "vitruvian-v2-assembly",
+      transform: defaultTransform(), material: primaryMaterial,
+      visible: true, castShadow: true, receiveShadow: true,
+      rigId: "vitruvian-v2-primary-rig",
+    },
+    {
+      id: "vitruvian-ghost", name: "Second pose", type: "mesh",
+      assetId: "vitruvian-v2", parentId: "vitruvian-v2-assembly",
+      transform: defaultTransform(), material: ghostMaterial,
+      visible: true, castShadow: false, receiveShadow: false,
+      rigId: "vitruvian-v2-ghost-rig",
+    },
+    {
+      id: "vitruvian-ring", name: "Electric ring", type: "mesh",
+      assetId: "vitruvian-v2", parentId: "vitruvian-v2-assembly",
+      transform: defaultTransform(), material: ringMaterial,
+      visible: true, castShadow: false, receiveShadow: false,
+    },
+  ];
+
+  project.rigs = (["primary", "ghost"] as const).map((figure) => {
+    const prefix = `${figure}_`;
+    const bones = mpfbStandardBones.map((bone): ModelBone => ({
+      name: `${prefix}${bone.name}`,
+      ...(bone.parent ? { parent: `${prefix}${bone.parent}` } : {}),
+      rest: defaultTransform(),
+    }));
+    return {
+      id: `vitruvian-v2-${figure}-rig`,
+      name: figure === "primary" ? "Primary figure rig" : "Second pose rig",
+      bones,
+      pose: Object.fromEntries(bones.map((bone) => [bone.name, emptyPose()])),
+    };
+  });
+  project.lights = [
+    {
+      id: "v2-fill", name: "Blue fill", type: "ambient", color: "#6aaaff",
+      intensity: 1.5, position: [0, 3, 4], target: [0, 1, 0],
+    },
+    {
+      id: "v2-rim", name: "Electric rim", type: "point", color: "#1d86ff",
+      intensity: 22, position: [0, 2, 3], target: [0, 1, 0],
+    },
+  ];
+  project.tracks = [{
+    id: "vitruvian-v2-spin",
+    targetId: "vitruvian-v2-assembly",
+    property: "rotationY",
+    keyframes: [0, 7500, 15000, 22500, 30000].map((timeMs, index) => ({
+      timeMs, value: index * 90, easing: "linear" as const,
+    })),
+  }];
   return project;
 }
 

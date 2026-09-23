@@ -7,6 +7,7 @@ import {
   createMeshSelection,
   createModelDraftStore,
   createVitruvianProject,
+  createVitruvianV2Project,
   evaluateModelFrame,
   exportModelProjectBundle,
   extrudeFaces,
@@ -75,6 +76,44 @@ describe("ModelProject v1", () => {
     expect(parsed).not.toHaveProperty("deviceId");
     expect(parsed).not.toHaveProperty("video");
     expect(() => parseModelProject({ ...project, version: 2 })).toThrow(/version/);
+  });
+});
+
+describe("Vitruvian V2 starter", () => {
+  test("keeps the old starter URL while assigning independent complete rigs", () => {
+    const legacy = createVitruvianProject();
+    const v2 = createVitruvianV2Project();
+    expect(legacy.assets[0]?.path).toBe("/modeler/vitruvian.glb");
+    expect(v2.assets[0]?.path).toBe("/modeler/vitruvian-v2.glb");
+    expect(v2.objects.map((object) => object.id)).toEqual([
+      "vitruvian-v2-assembly", "vitruvian-primary", "vitruvian-ghost", "vitruvian-ring",
+    ]);
+    expect(v2.rigs).toHaveLength(2);
+    expect(v2.rigs[0]?.bones).toHaveLength(163);
+    expect(v2.rigs[1]?.bones).toHaveLength(163);
+    const primaryNames = new Set(v2.rigs[0]?.bones.map((bone) => bone.name));
+    expect(v2.rigs[1]?.bones.some((bone) => primaryNames.has(bone.name))).toBe(false);
+    expect(v2.tracks[0]?.targetId).toBe("vitruvian-v2-assembly");
+  });
+
+  test("poses each figure separately and reloads without changing its schema", () => {
+    const v2 = createVitruvianV2Project();
+    v2.tracks.push({
+      id: "primary-arm-lift",
+      targetId: "vitruvian-v2-primary-rig",
+      property: "boneRotation",
+      boneName: "primary_upperarm01.L",
+      keyframes: [
+        { timeMs: 0, value: [0, 0, 0], easing: "linear" },
+        { timeMs: 1000, value: [0, 0, 30], easing: "linear" },
+      ],
+    });
+    const restored = parseModelProject(JSON.stringify(v2));
+    const frame = evaluateModelFrame(restored, 1000);
+    expect(frame.rigs[0]?.pose["primary_upperarm01.L"]?.rotation[2]).toBe(30);
+    expect(frame.rigs[1]?.pose["ghost_upperarm01.L"]?.rotation[2]).toBe(0);
+    expect(restored.version).toBe(1);
+    expect(v2.rigs[0]?.pose["primary_upperarm01.L"]?.rotation[2]).toBe(0);
   });
 });
 
